@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+
+<script type="text/javascript" src="http://static.robotwebtools.org/roslibjs/current/roslib.min.js"></script>
+
+<script type="text/javascript" type="text/javascript">
+  
+  var ros = new ROSLIB.Ros({
+    url : 'ws://localhost:9090'
+  });
+
+  ros.on('connection', function() {
+    document.getElementById("status").innerHTML = "Connected";
+  });
+
+  ros.on('error', function(error) {
+    document.getElementById("status").innerHTML = "Error";
+  });
+
+  ros.on('close', function() {
+    document.getElementById("status").innerHTML = "Closed";
+  });
+  
+  var txt_listener = new ROSLIB.Topic({
+    ros : ros,
+    name : '/txt_msg',
+    messageType : 'std_msgs/String'
+  });
+
+  addSentence = function(msg, cls, name) {
+	/*
+	<div class="[you|them] message">
+		<div class="avatar"></div>
+		<div class="name">[name]</div>
+		<div class="text">[msg]</div>
+	</div>
+	*/
+	var div_m = document.createElement("div");
+	div_m.classList.add("message");
+	div_m.classList.add(cls);
+	
+	var div_avat = document.createElement("div");
+	div_avat.classList.add("avatar");
+	
+	var div_name = document.createElement("div");
+	div_name.classList.add("name");
+	div_name.innerHTML=name;
+	
+	var div_text = document.createElement("div");
+	div_text.classList.add("text");
+
+	div_text.innerHTML=msg;
+	
+	
+	div_m.appendChild(div_avat);
+	div_m.appendChild(div_name);
+	div_m.appendChild(div_text);
+	
+	
+	var eElement = document.getElementById("discussion"); 
+	eElement.appendChild(div_m);
+	
+	
+	var chatbox = document.getElementById("chatbox"); 
+	chatbox.scrollTop = chatbox.scrollHeight;
+}
+
+  txt_listener.subscribe(function(m) {
+    //document.getElementById("msg").innerHTML = m.data;
+    console.log(m.data);
+    addSentence(m.data, "repl", "Rico");
+  });
+  
+  var txt_publisher = new ROSLIB.Topic({
+    ros : ros,
+    name : '/txt_send',
+    messageType: 'std_msgs/String'
+  });
+  
+  sendMsg = function() {
+    var txt = document.getElementById("usermsg").value;
+    addSentence(txt, "request", "You");
+    var msg = new ROSLIB.Message({
+	  data: txt
+	});
+	txt_publisher.publish(msg);
+    document.getElementById("usermsg").value = "";
+  }
+  
+	document.addEventListener("DOMContentLoaded", function(event) { 
+		// Get the input field
+		var input = document.getElementById("usermsg");
+
+		// Execute a function when the user releases a key on the keyboard
+		input.addEventListener("keyup", function(event) {
+		  // Number 13 is the "Enter" key on the keyboard
+		  if (event.keyCode === 13) {
+			// Cancel the default action, if needed
+			event.preventDefault();
+			// Trigger the button element with a click
+			document.getElementById("btnsend").click();
+		  }
+		});
+	});
+</script>
+
+<style>
+@import url(https://fonts.googleapis.com/css?family=Open+Sans:400,300,600);
+html, body {
+  position: relative;
+  height: 100%;
+  height: 100vh;
+  background: #cacaca;
+  font-family: "Open Sans", Verdana, Arial, sans-serif;
+  color: #fff;
+  text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.chat {
+  padding: 10px;
+  position: absolute;
+  margin: 0 auto;
+  width: 500px;
+  height: 80%;
+  top: calc(10% - 10px);
+  left: calc(50% - 250px - 10px);
+  background: #ddd;
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+.chat .reminder {
+  height: 25px;
+  text-align: center;
+  color: #999;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
+}
+.chat .chatbox {
+  position: relative;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+  height: calc(100% - 50px - 28px);
+}
+.chat .chatbox .status {
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.25);
+}
+.chat .chatbox .message {
+  position: relative;
+  min-height: 50px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.25);
+}
+.chat .chatbox .message .name {
+  font-weight: bold;
+  padding-top: 4px;
+  font-size: 16px;
+}
+.chat .chatbox .message .text {
+  font-size: 14px;
+  padding: 5px;
+  vertical-align: middle;
+  width: calc(100% - 10px - 48px);
+  margin-left: 48px;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+.chat .chatbox .message .avatar {
+  background: #fff url("you.png");
+  background-size: cover;
+  width: 40px;
+  height: 40px;
+  float: left;
+  vertical-align: top;
+  margin: 5px;
+  margin-right: 8px;
+  outline: 1px solid rgba(0, 0, 0, 0.25);
+}
+.chat .chatbox .repl {
+  text-align: right;
+  background: rgba(255, 255, 255, 0.1);
+}
+.chat .chatbox .repl .avatar {
+  background: url("rico.png");
+  background-size: cover;
+  float: right;
+  margin: 5px;
+  margin-left: 8px;
+}
+.chat .chatbox .repl .text {
+  margin-left: 0;
+  margin-right: 48px;
+}
+.chat .reply {
+  position: absolute;
+  bottom: 10px;
+  width: calc(100% - 20px);
+}
+.chat .reply .typing {
+  color: #aaa;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  margin: 0 0 6px 2px;
+  font-size: 12px;
+}
+.chat .reply .wrapper {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.chat .reply .wrapper * {
+  display: inline-block;
+  vertical-align: middle;
+  border: none;
+  margin: 0;
+  padding: 0;
+  outline: none;
+}
+.chat .reply .wrapper input[type=text] {
+  width: calc(80% - 12px);
+  font-family: "Open Sans", Verdana, Arial, sans-serif;
+  padding: 4px 6px;
+  border: none;
+}
+.chat .reply .wrapper button.send {
+  width: 20%;
+  height: 26px;
+  box-shadow: inset 1px 0 0 0 rgba(0, 0, 0, 0.15);
+}
+.chat .reply .wrapper button.send:active {
+  padding-top: 2px;
+}
+
+.setuser {
+  z-index: 3;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 400px;
+  padding: 20px 40px;
+  background: #aaa;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+  border-radius: 2px;
+}
+.setuser .wrapper {
+  margin-left: 15%;
+  width: 70%;
+  height: 26px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.setuser .wrapper * {
+  display: inline-block;
+  vertical-align: middle;
+  border: none;
+  margin: 0;
+  padding: 0;
+  outline: none;
+}
+.setuser .wrapper input.username {
+  padding: 4px 6px;
+  width: calc(75% - 12px);
+  height: calc(100% - 8px);
+  border: none;
+}
+.setuser .wrapper button {
+  width: 25%;
+  height: 26px;
+  box-shadow: inset 1px 0 0 0 rgba(0, 0, 0, 0.15);
+}
+.setuser .wrapper button:active {
+  padding-top: 2px;
+}
+.setuser p {
+  width: 100%;
+  font-size: 20px;
+  text-align: center;
+  padding: 0 0 10px;
+}
+
+.dim {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  width: 100vw;
+  height: 100%;
+  height: 100vh;
+  background: #000;
+  opacity: .75;
+  z-index: 1;
+}
+
+button {
+  font-family: "Open Sans", Verdana, Arial, sans-serif;
+  cursor: pointer;
+  color: #666;
+  background: #ccc;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+input[type=text] {
+  font-family: "Open Sans", Verdana, Arial, sans-serif;
+  color: #555;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #ccc;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #fff;
+  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+@media screen and (max-width: 650px) {
+  .chat {
+    width: 350px;
+    height: 80%;
+    left: calc(50% - 185px);
+  }
+
+  .setuser {
+    width: 300px;
+    padding: 20px 40px;
+    background: #aaa;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+    border-radius: 2px;
+  }
+  .setuser .wrapper {
+    margin-left: 5%;
+    width: 90%;
+    height: 26px;
+  }
+  .setuser .wrapper button {
+    width: 30%;
+  }
+  .setuser .wrapper button:active {
+    padding-top: 2px;
+  }
+  .setuser .wrapper input.username {
+    width: calc(70% - 12px) !important;
+  }
+  .setuser p {
+    font-size: 16px;
+  }
+}
+</style>
+</head>
+
+<body>
+ 
+ 
+<div class="wrapper">
+	<div class="chat">
+		<div class="reminder">Welcome! Remember to be kind to others&hellip;</div>
+		<div class="chatbox" id="chatbox">
+			<div class="messages-wrapper" id="discussion">
+				<div id="status" class="status">Searching for a partner...</div>
+			</div>
+		</div>
+		<div class="reply">
+			<div class="typing"></div>
+			<div class="wrapper">
+				<input class="usermsg" id="usermsg" type="text" placeholder="Czego sobie życzysz?" /><button id="btnsend" class="send" onClick="sendMsg()">Send</button>
+			</div>
+		</div>
+	</div>
+</div> 
+ 
+</body>
+</html>
