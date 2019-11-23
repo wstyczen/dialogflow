@@ -37,6 +37,7 @@
 		<div class="text">[msg]</div>
 	</div>
 	*/
+	var d = new Date();
 	var div_m = document.createElement("div");
 	div_m.classList.add("message");
 	div_m.classList.add(cls);
@@ -46,7 +47,7 @@
 	
 	var div_name = document.createElement("div");
 	div_name.classList.add("name");
-	div_name.innerHTML=name;
+	div_name.innerHTML=name + " <span class=\"date\">" + d.toLocaleString("pl-PL");  + "</span>";
 	
 	var div_text = document.createElement("div");
 	div_text.classList.add("text");
@@ -137,14 +138,8 @@ html, body {
   color: #999;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
 }
-.chat .chatbox {
-  position: relative;
-  background: rgba(0, 0, 0, 0.25);
-  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.5);
-  overflow-y: auto;
-  height: calc(100% - 50px - 28px);
-}
-.chat .chatbox .status {
+
+.chat .status {
   font-size: 18px;
   font-weight: bold;
   text-align: center;
@@ -152,16 +147,32 @@ html, body {
   border-bottom: 1px solid rgba(0, 0, 0, 0.15);
   background: rgba(0, 0, 0, 0.25);
 }
+
+.chat .chatbox {
+  position: relative;
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+  height: calc(100% - 50px - 50px);
+}
 .chat .chatbox .message {
   position: relative;
   min-height: 50px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.15);
   background: rgba(255, 255, 255, 0.25);
+  width: 70%;
+  margin-bottom: 5px;
+  border-radius: 0 10px 10px 0;
 }
 .chat .chatbox .message .name {
   font-weight: bold;
   padding-top: 4px;
   font-size: 16px;
+}
+.chat .chatbox .message .name .date {
+  font-weight: normal;
+  padding-top: 4px;
+  font-size: 12px;
 }
 .chat .chatbox .message .text {
   font-size: 14px;
@@ -187,6 +198,8 @@ html, body {
 .chat .chatbox .repl {
   text-align: right;
   background: rgba(255, 255, 255, 0.1);
+  margin-left: 30%;
+  border-radius: 10px 0 0 10px;
 }
 .chat .chatbox .repl .avatar {
   background: url("rico.png");
@@ -363,10 +376,18 @@ input[type=text] {
  
 <div class="wrapper">
 	<div class="chat">
-		<div class="reminder">Welcome! Remember to be kind to others&hellip;</div>
+		<div class="reminder">Powiedz mi, czego pragniesz.</div>
+				<div id="status" class="status">Searching for a partner...</div>
 		<div class="chatbox" id="chatbox">
 			<div class="messages-wrapper" id="discussion">
-				<div id="status" class="status">Searching for a partner...</div>
+				<div class="message request"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message repl"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message request"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message repl"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message request"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message repl"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message request"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
+				<div class="message repl"><div class="avatar"></div><div class="name">You <span class="date">2018-01-02 12:45</span></div><div class="text"></div></div>
 			</div>
 		</div>
 		<div class="reply">
