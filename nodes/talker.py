@@ -50,14 +50,14 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
         output_audio_config=output_audio_config
     )
 
-    print('=' * 20)
-    print(u'Query text: {}'.format(response.query_result.query_text))
-    print(u'Detected intent: {} (confidence: {} params: {})'.format(
-        response.query_result.intent.display_name,
-        response.query_result.intent_detection_confidence,
-        response.query_result.parameters))
-    print(u'Fulfillment text: {}\n'.format(
-        response.query_result.fulfillment_text))
+#    print('=' * 20)
+#    print(u'Query text: {}'.format(response.query_result.query_text))
+#    print(u'Detected intent: {} (confidence: {} params: {})'.format(
+#        response.query_result.intent.display_name,
+#        response.query_result.intent_detection_confidence,
+#        response.query_result.parameters))
+#    print(u'Fulfillment text: {}\n'.format(
+#        response.query_result.fulfillment_text))
 
     with open('output.wav', 'wb') as out:
         out.write(response.output_audio)
@@ -105,14 +105,14 @@ def detect_intent_text(project_id, session_id, text, language_code):
         output_audio_config=output_audio_config
     )
 
-    print('=' * 20)
-    print(u'Query text: {}'.format(response.query_result.query_text))
-    print(u'Detected intent: {} (confidence: {} params: {})'.format(
-        response.query_result.intent.display_name,
-        response.query_result.intent_detection_confidence,
-        response.query_result.parameters))
-    print(u'Fulfillment text: {}\n'.format(
-        response.query_result.fulfillment_text))
+#    print('=' * 20)
+#    print(u'Query text: {}'.format(response.query_result.query_text))
+#    print(u'Detected intent: {} (confidence: {} params: {})'.format(
+#        response.query_result.intent.display_name,
+#        response.query_result.intent_detection_confidence,
+#        response.query_result.parameters))
+#    print(u'Fulfillment text: {}\n'.format(
+#        response.query_result.fulfillment_text))
 
     with open('output.wav', 'wb') as out:
         out.write(response.output_audio)
@@ -125,9 +125,9 @@ def detect_intent_text(project_id, session_id, text, language_code):
 
 pub = rospy.Publisher('txt_msg', String, queue_size=10)
 
-def callback(data):
+def callback(data, agent_name):
     rospy.loginfo("I heard %s", data.data)
-    response = detect_intent_text("fiery-set-259318", "test_sess_01", data.data, "pl")
+    response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
     pub.publish(response.query_result.fulfillment_text);
     
 def listener():
@@ -139,7 +139,9 @@ def listener():
     # run simultaneously.
     rospy.init_node('talker', anonymous=True)
 
-    rospy.Subscriber("txt_send", String, callback)
+    agent_name = rospy.get_param('~agent_name')
+
+    rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
 
     # spin() simply keeps python from exiting until this node is stopped
     rospy.spin()

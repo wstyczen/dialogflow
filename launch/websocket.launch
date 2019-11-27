@@ -1,3 +1,7 @@
 <launch>
   <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch"/>
+  
+  <node pkg="dialogflow" type="talker.py" name="talker">
+    <param name="agent_name" value="incare-dialog-agent" />
+  </node>
 </launch>
