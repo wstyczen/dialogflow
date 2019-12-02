@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import rospy
 from std_msgs.msg import String
+from tiago_msgs.msg import Command
 
 # encoding: utf8
 
@@ -124,11 +125,21 @@ def detect_intent_text(project_id, session_id, text, language_code):
 
 
 pub = rospy.Publisher('txt_msg', String, queue_size=10)
+pub_cmd = rospy.Publisher('tiago_cmd', Command, queue_size=10)
 
 def callback(data, agent_name):
     rospy.loginfo("I heard %s", data.data)
     response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
     pub.publish(response.query_result.fulfillment_text);
+
+    cmd = Command()
+    cmd.query_text = response.query_result.query_text
+    cmd.intent_name = response.query_result.intent.name
+    for param_name, param_value in response.query_result.parameters.fields.iteritems():
+        cmd.parameters.append( param_name + ':' + str(param_value) )
+    cmd.confidence = response.query_result.intent_detection_confidence
+    cmd.response_text = response.query_result.fulfillment_text
+    pub_cmd.publish(cmd);
     
 def listener():
 
