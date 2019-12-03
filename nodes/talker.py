@@ -156,8 +156,10 @@ def callback(data, agent_name):
     cmd.response_text = response.query_result.fulfillment_text
     pub_cmd.publish(cmd)
 
-def listener():
+def callbackOut(data, agent_name):
+    pub.publish(data);
 
+def listener():
     # In ROS, nodes are uniquely named. If two nodes with the same
     # name are launched, the previous one is kicked off. The
     # anonymous=True flag means that rospy will choose a unique
@@ -168,6 +170,8 @@ def listener():
     agent_name = rospy.get_param('~agent_name')
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
+
+    rospy.Subscriber("rico_says", String, lambda x: callbackOut(x, agent_name))
 
     # spin() simply keeps python from exiting until this node is stopped
     rospy.spin()
