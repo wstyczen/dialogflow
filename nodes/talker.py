@@ -5,7 +5,10 @@ from tiago_msgs.msg import Command
 
 # encoding: utf8
 
+import copy
 import sys
+
+import pl_nouns.odmiana as ro
 
 def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
     """Returns the result of detect intent with an audio file as input.
@@ -130,7 +133,8 @@ pub_cmd = rospy.Publisher('tiago_cmd', Command, queue_size=10)
 def callback(data, agent_name):
     rospy.loginfo("I heard %s", data.data)
     response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
-    pub.publish(response.query_result.fulfillment_text);
+    if len(response.query_result.fulfillment_text) > 0:
+        pub.publish(response.query_result.fulfillment_text);
 
     print response.query_result
 
@@ -156,8 +160,87 @@ def callback(data, agent_name):
     cmd.response_text = response.query_result.fulfillment_text
     pub_cmd.publish(cmd)
 
-def callbackOut(data, agent_name):
-    pub.publish(data);
+class Odmieniacz:
+    def __init__(self):
+        self.o = ro.OdmianaRzeczownikow()
+
+    def przypadki(self, word, przyp):
+        blocks = self.o.getBlocks(word)
+        if len(blocks) == 0:
+            word_m = word
+            lp = True
+        else:
+            m_lp = self.o.getMianownikLp(blocks)
+            if len(m_lp) == 0:
+                m_lm = self.o.getMianownikLm(blocks)
+                word_m = m_lm[0]
+                lp = False
+            else:
+                word_m = m_lp[0]
+                lp = True
+
+        if przyp == 'biernik':
+            if lp:
+                word_p = self.o.getBiernikLp(blocks, mianownik=word_m)
+                if len(word_p) == 0:
+                    word_p = word_m
+                else:
+                    word_p = word_p[0]
+            else:
+                word_p = self.o.getBiernikLm(blocks, mianownik=word_m)
+                if len(word_p) == 0:
+                    word_p = word_m
+                else:
+                    word_p = word_p[0]
+
+        if przyp == 'dopelniacz':
+            if lp:
+                word_p = self.o.getDopelniaczLp(blocks, mianownik=word_m)
+                if len(word_p) == 0:
+                    word_p = word_m
+                else:
+                    word_p = word_p[0]
+            else:
+                word_p = self.o.getDopelniaczLm(blocks, mianownik=word_m)
+                if len(word_p) == 0:
+                    word_p = word_m
+                else:
+                    word_p = word_p[0]
+
+        return word_m, word_p
+
+    def odmien(self, s):
+        result = copy.copy(s)
+        while True:
+            l_brace_idx = result.find('{')
+            if l_brace_idx < 0:
+                break
+            r_brace_idx = result.find('}', l_brace_idx)
+            if r_brace_idx < 0:
+                break
+            odm = result[l_brace_idx+1:r_brace_idx]
+            print odm
+            quot_idx1 = odm.find('"')
+            quot_idx2 = odm.find('"', quot_idx1+1)
+            word_orig = odm[quot_idx1+1:quot_idx2]
+            print word_orig
+            sep_idx = odm.find(',', quot_idx2+1)
+            przyp = odm[sep_idx+1:].strip()
+            word_m, word_p = self.przypadki(word_orig, przyp)
+            result = result[0:l_brace_idx] + word_p + result[r_brace_idx+1:]
+        return result
+
+odm = Odmieniacz()
+
+def callbackRicoSays(data, agent_name):
+    global odm
+    # TODO: change it to action server and wait for finish
+    #print str(data)
+    data_uni = ro.convertToUnicode(str(data.data))
+    #print 'callbackRicoSays ', data.data, data_uni
+
+    data_uni = odm.odmien(data_uni)
+    pub.publish(data_uni)
 
 def listener():
     # In ROS, nodes are uniquely named. If two nodes with the same
@@ -171,7 +254,7 @@ def listener():
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
 
-    rospy.Subscriber("rico_says", String, lambda x: callbackOut(x, agent_name))
+    rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, agent_name))
 
     # spin() simply keeps python from exiting until this node is stopped
     rospy.spin()
