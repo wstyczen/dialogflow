@@ -181,6 +181,9 @@ class Odmieniacz:
                 word_m = m_lp[0]
                 lp = True
 
+        if przyp == 'mianownik':
+            word_p = word
+
         if przyp == 'biernik':
             if lp:
                 word_p = self.o.getBiernikLp(blocks, mianownik=word_m)
