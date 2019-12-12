@@ -1,9 +1,10 @@
 #!/usr/bin/env python
+# encoding: utf8
+
 import rospy
 from std_msgs.msg import String
 from tiago_msgs.msg import Command
 
-# encoding: utf8
 
 import copy
 import sys
@@ -143,7 +144,8 @@ def callback(data, agent_name):
     cmd.intent_name = response.query_result.intent.name
     for param_name, param in response.query_result.parameters.fields.iteritems():
 
-        param_str = str(param)
+        param_str = unicode(param)
+        print 'dir(param)', dir(param)
         colon_idx = param_str.find(':')
         param_type = param_str[0:colon_idx]
         assert param_type == 'string_value'
@@ -236,7 +238,7 @@ def callbackRicoSays(data, agent_name):
     global odm
     # TODO: change it to action server and wait for finish
     #print str(data)
-    data_uni = ro.convertToUnicode(str(data.data))
+    data_uni = data.data #ro.convertToUnicode(str(data.data))
     #print 'callbackRicoSays ', data.data, data_uni
 
     data_uni = odm.odmien(data_uni)
