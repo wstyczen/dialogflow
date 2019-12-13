@@ -238,16 +238,9 @@ odm = Odmieniacz()
 
 def callbackRicoSays(data, agent_name):
     global odm
-    # TODO: change it to action server and wait for finish
-    #print str(data)
-    try:
-        data_uni = unicode(data.data) #ro.convertToUnicode(str(data.data))
-    #print 'callbackRicoSays ', data.data, data_uni
-
-        data_uni = odm.odmien(data_uni)
-        pub.publish(data_uni)
-    except Exception as e:
-        print e
+    data_uni = data.data.decode('utf-8')
+    data_uni = odm.odmien(data_uni)
+    pub.publish(data_uni)
 
 def listener():
     # In ROS, nodes are uniquely named. If two nodes with the same
