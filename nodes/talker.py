@@ -6,6 +6,10 @@ from std_msgs.msg import String
 from tiago_msgs.msg import Command
 
 
+from sound_play.msg import SoundRequest
+from sound_play.libsoundplay import SoundClient
+
+
 import copy
 import sys
 
@@ -64,7 +68,7 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
 #    print(u'Fulfillment text: {}\n'.format(
 #        response.query_result.fulfillment_text))
 
-    with open('output.wav', 'wb') as out:
+    with open('/tmp/output.wav', 'wb') as out:
         out.write(response.output_audio)
         print('Audio content written to file "output.wav"')
 
@@ -121,7 +125,7 @@ def detect_intent_text(project_id, session_id, text, language_code):
 #    print(u'Fulfillment text: {}\n'.format(
 #        response.query_result.fulfillment_text))
 
-    with open('output.wav', 'wb') as out:
+    with open('/tmp/output.wav', 'wb') as out:
         out.write(response.output_audio)
         print('Audio content written to file "output.wav"')
         
@@ -133,11 +137,15 @@ def detect_intent_text(project_id, session_id, text, language_code):
 pub = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('tiago_cmd', Command, queue_size=10)
 
+soundhandle = SoundClient()
+
+
 def callback(data, agent_name):
     rospy.loginfo("I heard %s", data.data)
     response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
-        pub.publish(response.query_result.fulfillment_text);
+        pub.publish(response.query_result.fulfillment_text)
+        soundhandle.playWave("/tmp/output.wav", 1)
 
     print response.query_result
 
@@ -163,11 +171,14 @@ def callback(data, agent_name):
     cmd.response_text = response.query_result.fulfillment_text
     pub_cmd.publish(cmd)
 
+
+
 def callback_wav(data, agent_name):
     rospy.loginfo("I recorded %s", data.data)
     response = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
         pub.publish(response.query_result.fulfillment_text)
+        soundhandle.playWave("/tmp/output.wav", 1)
 
     print response.query_result
 
