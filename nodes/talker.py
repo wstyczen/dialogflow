@@ -68,6 +68,8 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
         out.write(response.output_audio)
         print('Audio content written to file "output.wav"')
 
+    return response
+
 
 def detect_intent_text(project_id, session_id, text, language_code):
     """Returns the result of detect intent with an audio file as input.
@@ -136,6 +138,36 @@ def callback(data, agent_name):
     response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
         pub.publish(response.query_result.fulfillment_text);
+
+    print response.query_result
+
+    cmd = Command()
+    cmd.query_text = response.query_result.query_text
+    cmd.intent_name = response.query_result.intent.name
+    for param_name, param in response.query_result.parameters.fields.iteritems():
+
+        param_str = unicode(param)
+        colon_idx = param_str.find(':')
+        param_type = param_str[0:colon_idx]
+        assert param_type == 'string_value'
+        param_value = param_str[colon_idx+1:].strip()[1:-1]
+
+        print 'param_name: "' + param_name + '"'
+        print 'param_type: "' + param_type + '"'
+        print 'param_value: "' + param_value + '"'
+
+        cmd.param_names.append( param_name )
+        cmd.param_values.append( param_value )
+
+    cmd.confidence = response.query_result.intent_detection_confidence
+    cmd.response_text = response.query_result.fulfillment_text
+    pub_cmd.publish(cmd)
+
+def callback_wav(data, agent_name):
+    rospy.loginfo("I recorded %s", data.data)
+    response = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
+    if len(response.query_result.fulfillment_text) > 0:
+        pub.publish(response.query_result.fulfillment_text)
 
     print response.query_result
 
@@ -253,6 +285,8 @@ def listener():
     agent_name = rospy.get_param('~agent_name')
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
+
+    rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name))
 
     rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, agent_name))
 
