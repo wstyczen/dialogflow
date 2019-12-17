@@ -3,6 +3,7 @@
   
   <node pkg="dialogflow" type="talker.py" name="talker" output="screen">
     <param name="agent_name" value="incare-dialog-agent" />
+    <param name="data_dir" value="$(find dialogflow)/data" />
   </node>
 
   <node name="soundplay_node" pkg="sound_play" type="soundplay_node.py"/>

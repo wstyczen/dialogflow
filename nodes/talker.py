@@ -12,6 +12,7 @@ from sound_play.libsoundplay import SoundClient
 
 import copy
 import sys
+import os
 
 import pl_nouns.odmiana as ro
 
@@ -279,6 +280,9 @@ class Odmieniacz:
 
 odm = Odmieniacz()
 
+def strip_inter(string):
+    return string.replace(".", "").replace(",","")
+
 def callbackRicoSays(data, sentence_dict):
     global odm
     data_uni = data.data.decode('utf-8')
@@ -287,14 +291,13 @@ def callbackRicoSays(data, sentence_dict):
 
     from Levenshtein import distance
     ss = strip_inter(data.data).strip().upper()
-    print "Searching best match for", ss 
     best_k = ""
     best_d = 999
     print "Searching best match for", ss 
     for k in sentence_dict.keys():
         #print k, v
         d = distance(k, ss)
-        print k, d
+    #    print k, d
         if d < best_d:
             best_d = d
             best_k = k
