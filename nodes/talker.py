@@ -279,11 +279,29 @@ class Odmieniacz:
 
 odm = Odmieniacz()
 
-def callbackRicoSays(data, agent_name):
+def callbackRicoSays(data, sentence_dict):
     global odm
     data_uni = data.data.decode('utf-8')
     data_uni = odm.odmien(data_uni)
     pub.publish(data_uni)
+
+    from Levenshtein import distance
+    ss = strip_inter(data.data).strip().upper()
+    print "Searching best match for", ss 
+    best_k = ""
+    best_d = 999
+    print "Searching best match for", ss 
+    for k in sentence_dict.keys():
+        #print k, v
+        d = distance(k, ss)
+        print k, d
+        if d < best_d:
+            best_d = d
+            best_k = k
+
+    if best_d < 5:
+        print "Wiem co powiedzieć!", ss, best_k, sentence_dict[best_k]
+        soundhandle.playWave(sentence_dict[best_k], 1)
 
 def listener():
     # In ROS, nodes are uniquely named. If two nodes with the same
@@ -294,12 +312,18 @@ def listener():
     rospy.init_node('talker', anonymous=True)
 
     agent_name = rospy.get_param('~agent_name')
+    data_dir = rospy.get_param('~data_dir')
+
+    sentence_dict = {}
+    from itertools import izip
+    for sent, fname in izip(open(os.path.join(data_dir, "labels.txt")), open(os.path.join(data_dir, "files.txt"))):
+         sentence_dict[strip_inter(sent).strip().upper()] = os.path.join(data_dir, fname.strip())
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
 
     rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name))
 
-    rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, agent_name))
+    rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, sentence_dict))
 
     # spin() simply keeps python from exiting until this node is stopped
     rospy.spin()
