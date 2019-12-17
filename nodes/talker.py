@@ -13,6 +13,7 @@ from sound_play.libsoundplay import SoundClient
 import copy
 import sys
 import os
+import codecs
 
 import pl_nouns.odmiana as ro
 
@@ -290,7 +291,7 @@ def callbackRicoSays(data, sentence_dict):
     pub.publish(data_uni)
 
     from Levenshtein import distance
-    ss = strip_inter(data.data).strip().upper()
+    ss = strip_inter(data_uni).strip().upper()
     best_k = ""
     best_d = 999
     print "Searching best match for", ss 
@@ -319,8 +320,9 @@ def listener():
 
     sentence_dict = {}
     from itertools import izip
-    for sent, fname in izip(open(os.path.join(data_dir, "labels.txt")), open(os.path.join(data_dir, "files.txt"))):
-         sentence_dict[strip_inter(sent).strip().upper()] = os.path.join(data_dir, fname.strip())
+    for sent, fname in izip(codecs.open(os.path.join(data_dir, "labels.txt"), encoding="utf-8"), open(os.path.join(data_dir, "files.txt"))):
+        ss = unicode(sent) 
+        sentence_dict[strip_inter(ss).strip().upper()] = os.path.join(data_dir, fname.strip())
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
 
