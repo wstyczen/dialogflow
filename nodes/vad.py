@@ -2,7 +2,7 @@
 # encoding: utf8
 
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 
 '''
 Requirements:
@@ -62,11 +62,15 @@ stream = pa.open(format=FORMAT,
 
 got_a_sentence = False
 leave = False
+vad_active = True
 
-
+def vad_callback(data):
+    global vad_active
+    vad_active = data.data
 
 rospy.init_node('vad', anonymous=True)
 pub = rospy.Publisher('wav_send', String, queue_size=10)
+sub = rospy.Subscriber('vad_active', Bool, vad_callback)
 
 
 def handle_int(sig, chunk):
@@ -111,6 +115,10 @@ while not leave:
     ring_buffer_index_end = 0
     buffer_in = ''
     # WangS
+
+    while not vad_active:
+        pass
+
     raw_data = array('h')
     index = 0
     start_point = 0
@@ -118,7 +126,7 @@ while not leave:
     print("* recording: ")
     stream.start_stream()
 
-    while not got_a_sentence and not leave:
+    while not got_a_sentence and not leave and vad_active:
         chunk = stream.read(CHUNK_SIZE)
         decoded_block = np.fromstring(chunk, 'Int16')
 
@@ -167,7 +175,7 @@ while not leave:
 
     stream.stop_stream()
     print("* done recording")
-    if got_a_sentence:
+    if got_a_sentence and vad_active:
         got_a_sentence = False
 
         # write to file

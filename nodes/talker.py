@@ -2,7 +2,7 @@
 # encoding: utf8
 
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from tiago_msgs.msg import Command
 
 
@@ -138,8 +138,14 @@ def detect_intent_text(project_id, session_id, text, language_code):
 
 pub = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('tiago_cmd', Command, queue_size=10)
+pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 
 soundhandle = SoundClient()
+
+def playBlockingsound(fname):
+    pub_vad_active.publish(False)
+    soundhandle.playWave(fname, 1, blocking=True)
+    pub_vad_active.publish(True)
 
 
 def callback(data, agent_name):
@@ -147,7 +153,7 @@ def callback(data, agent_name):
     response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
         pub.publish(response.query_result.fulfillment_text)
-        soundhandle.playWave("/tmp/output.wav", 1)
+        playBlockingsound("/tmp/output.wav")
 
     print response.query_result
 
@@ -180,7 +186,7 @@ def callback_wav(data, agent_name):
     response = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
         pub.publish(response.query_result.fulfillment_text)
-        soundhandle.playWave("/tmp/output.wav", 1)
+        playBlockingsound("/tmp/output.wav")
 
     print response.query_result
 
@@ -305,7 +311,7 @@ def callbackRicoSays(data, sentence_dict):
 
     if best_d < 5:
         print "Wiem co powiedzieć!", ss, best_k, sentence_dict[best_k]
-        soundhandle.playWave(sentence_dict[best_k], 1)
+        playBlockingsound(sentence_dict[best_k])
 
 def listener():
     # In ROS, nodes are uniquely named. If two nodes with the same
