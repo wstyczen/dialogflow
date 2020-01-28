@@ -136,7 +136,7 @@ def detect_intent_text(project_id, session_id, text, language_code):
 #detect_intent_audio("fiery-set-259318", "test_sess_01", sys.argv[1], "pl")
 
 
-pub = rospy.Publisher('txt_msg', String, queue_size=10)
+pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('tiago_cmd', Command, queue_size=10)
 pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 
@@ -152,7 +152,7 @@ def callback(data, agent_name):
     rospy.loginfo("I heard %s", data.data)
     response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
-        pub.publish(response.query_result.fulfillment_text)
+        pub_txt_msg.publish(response.query_result.fulfillment_text)
         playBlockingsound("/tmp/output.wav")
 
     print response.query_result
@@ -185,7 +185,7 @@ def callback_wav(data, agent_name):
     rospy.loginfo("I recorded %s", data.data)
     response = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
     if len(response.query_result.fulfillment_text) > 0:
-        pub.publish(response.query_result.fulfillment_text)
+        pub_txt_msg.publish(response.query_result.fulfillment_text)
         playBlockingsound("/tmp/output.wav")
 
     print response.query_result
@@ -294,7 +294,7 @@ def callbackRicoSays(data, sentence_dict):
     global odm
     data_uni = data.data.decode('utf-8')
     data_uni = odm.odmien(data_uni)
-    pub.publish(data_uni)
+    pub_txt_msg.publish(data_uni)
 
     from Levenshtein import distance
     ss = strip_inter(data_uni).strip().upper()
