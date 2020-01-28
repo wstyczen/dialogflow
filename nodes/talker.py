@@ -137,7 +137,7 @@ def detect_intent_text(project_id, session_id, text, language_code):
 
 
 pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
-pub_cmd = rospy.Publisher('tiago_cmd', Command, queue_size=10)
+pub_cmd = rospy.Publisher('rico_cmd', Command, queue_size=10)
 pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 
 soundhandle = SoundClient()
