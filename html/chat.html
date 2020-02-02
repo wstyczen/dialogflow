@@ -29,49 +29,71 @@
     messageType : 'std_msgs/String'
   });
 
-  addSentence = function(msg, cls, name) {
-	/*
-	<div class="[you|them] message">
-		<div class="avatar"></div>
-		<div class="name">[name]</div>
-		<div class="text">[msg]</div>
-	</div>
-	*/
-	var d = new Date();
-	var div_m = document.createElement("div");
-	div_m.classList.add("message");
-	div_m.classList.add(cls);
-	
-	var div_avat = document.createElement("div");
-	div_avat.classList.add("avatar");
-	
-	var div_name = document.createElement("div");
-	div_name.classList.add("name");
-	div_name.innerHTML=name + " <span class=\"date\">" + d.toLocaleString("pl-PL");  + "</span>";
-	
-	var div_text = document.createElement("div");
-	div_text.classList.add("text");
+  var voice_status_listener = new ROSLIB.Topic({
+    ros : ros,
+    name : '/voice_status',
+    messageType : 'std_msgs/Int32'
+  });
 
-	div_text.innerHTML=msg;
-	
-	
-	div_m.appendChild(div_avat);
-	div_m.appendChild(div_name);
-	div_m.appendChild(div_text);
-	
-	
-	var eElement = document.getElementById("discussion"); 
-	eElement.appendChild(div_m);
-	
-	
-	var chatbox = document.getElementById("chatbox"); 
-	chatbox.scrollTop = chatbox.scrollHeight;
-}
+  addSentence = function(msg, cls, name) {
+    /*
+    <div class="[you|them] message">
+      <div class="avatar"></div>
+      <div class="name">[name]</div>
+      <div class="text">[msg]</div>
+    </div>
+    */
+    var d = new Date();
+    var div_m = document.createElement("div");
+    div_m.classList.add("message");
+    div_m.classList.add(cls);
+    
+    var div_avat = document.createElement("div");
+    div_avat.classList.add("avatar");
+    
+    var div_name = document.createElement("div");
+    div_name.classList.add("name");
+    div_name.innerHTML=name + " <span class=\"date\">" + d.toLocaleString("pl-PL");  + "</span>";
+    
+    var div_text = document.createElement("div");
+    div_text.classList.add("text");
+
+    div_text.innerHTML=msg;
+    
+    
+    div_m.appendChild(div_avat);
+    div_m.appendChild(div_name);
+    div_m.appendChild(div_text);
+    
+    
+    var eElement = document.getElementById("discussion"); 
+    eElement.appendChild(div_m);
+    
+    
+    var chatbox = document.getElementById("chatbox"); 
+    chatbox.scrollTop = chatbox.scrollHeight;
+  }
 
   txt_listener.subscribe(function(m) {
     //document.getElementById("msg").innerHTML = m.data;
     console.log(m.data);
     addSentence(m.data, "repl", "Rico");
+  });
+
+  voice_status_listener.subscribe(function(m) {
+    console.log("voice status: " + m.data);
+    var eElement = document.getElementById("voice_indicator");
+    switch(m.data) {
+      case 0:
+        eElement.className = "sphere red";
+        break;
+      case 1:
+        eElement.className = "sphere yellow";
+        break;
+      case 2:
+        eElement.className = "sphere green";
+        break;
+    } 
   });
   
   var txt_publisher = new ROSLIB.Topic({
@@ -84,12 +106,27 @@
     var txt = document.getElementById("usermsg").value;
     addSentence(txt, "request", "You");
     var msg = new ROSLIB.Message({
-	  data: txt
-	});
-	txt_publisher.publish(msg);
+      data: txt
+    });
+    txt_publisher.publish(msg);
     document.getElementById("usermsg").value = "";
   }
+
+  bring = function(m) {
+    var msg = new ROSLIB.Message({
+      data: "Przynieś: " + m
+    });
+    txt_publisher.publish(msg);
+  }
   
+
+  go_to = function(m) {
+    var msg = new ROSLIB.Message({
+      data: "Idź do: " + m
+    });
+    txt_publisher.publish(msg);
+  }
+
 	document.addEventListener("DOMContentLoaded", function(event) { 
 		// Get the input field
 		var input = document.getElementById("usermsg");
@@ -118,25 +155,49 @@ html, body {
   color: #fff;
   text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
   overflow: hidden;
+  margin: 0;
+background: rgb(0,0,0);
 }
 
 .chat {
   padding: 10px;
+  margin: 10px;
   position: absolute;
-  margin: 0 auto;
-  width: 500px;
-  height: 80%;
-  top: calc(10% - 10px);
-  left: calc(50% - 250px - 10px);
+  /*margin: 0 auto;*/
+  width: calc(50% - 40px - 10px);
+  height: 90%;
+  /*top: calc(10% - 10px);*/
+  /*left: calc(50% - 250px - 10px);*/
+  float: left;
   background: #ddd;
+  background: linear-gradient(0deg, rgba(41,54,60,1) 0%, rgba(10,18,21,1) 100%);
   border-radius: 4px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 0 10px rgba(0, 238, 255, 0.8);
 }
+
+.right {
+  margin: 10px;
+  margin-left: calc(50%);
+  position: absolute;
+  padding: 10px;
+  position: absolute;
+  /*margin: 0 auto;*/
+  width: calc(50% - 40px - 5px);
+  height: 90%;
+  /*top: calc(10% - 10px);*/
+  /*left: calc(50% - 250px - 10px);*/
+  background: #ddd;
+  background: linear-gradient(0deg, rgba(41,54,60,1) 0%, rgba(10,18,21,1) 100%);
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(0, 238, 255, 0.8);
+}
+
+
 .chat .reminder {
   height: 25px;
   text-align: center;
   color: #999;
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
+  /*text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);*/
 }
 
 .chat .status {
@@ -150,8 +211,8 @@ html, body {
 
 .chat .chatbox {
   position: relative;
-  background: rgba(0, 0, 0, 0.25);
-  box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.5);
   overflow-y: auto;
   height: calc(100% - 50px - 50px);
 }
@@ -336,6 +397,67 @@ input[type=text] {
   box-shadow: inset 0 0 1px rgba(0, 0, 0, 0.5);
 }
 
+.panel {
+  text-align: center;
+}
+
+.red {
+    background-color: #f00;
+}
+
+.yellow {
+    background-color: #fc0;
+}
+
+.green {
+    background-color: #0f0;
+}
+
+
+.sphere{
+  position: relative;
+  height: 120px;
+  /*width: 150px;*/
+  border-radius: 20px;
+  text-align:center;
+  vertical-align:middle;
+  line-height: 120px;
+  box-shadow: inset -10px -10px 30px rgba(0, 0, 0, 0.5),
+              10px 10px 10px black,
+              inset 0px 0px 10px black;  
+
+  margin: 10px;
+
+  font-size: 150%;
+}
+.button {
+  background-color: rgba(255, 255, 255, 0.3);
+  height: 80px;
+  line-height: 80px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background-color: rgba(0, 255, 221, 0.6);
+  height: 80px;
+  line-height: 80px;
+}
+
+ .sphere::after {
+   background-color: rgba(255,255,255,0.7);
+   content:'';
+   height: 4%;
+   width: 90%;
+   position:absolute;
+   top: 9%;
+   left: 5%;
+   border-radius:50%;
+   transform: rotate(0deg);
+ }
+
+
+
+/*
 @media screen and (max-width: 650px) {
   .chat {
     width: 350px;
@@ -367,7 +489,7 @@ input[type=text] {
   .setuser p {
     font-size: 16px;
   }
-}
+}*/
 </style>
 </head>
 
@@ -388,7 +510,21 @@ input[type=text] {
 				<input class="usermsg" id="usermsg" type="text" placeholder="Czego sobie życzysz?" /><button id="btnsend" class="send" onClick="sendMsg()">Send</button>
 			</div>
 		</div>
-	</div>
+  </div>
+  <div class="right">
+    <div class="panel">
+      <div id="voice_indicator" class="sphere green">czekam...</div>
+    </div>
+    <div class="panel">
+      <div id="go_to_1" class="sphere button" onClick="go_to('kuchnia')">Jedź do kuchni</div>
+    </div>
+    <div class="panel">
+        <div id="go_to_2" class="sphere button" onClick="bring('herbata')">Podaj herbatę</div>
+      </div>
+      <div class="panel">
+          <div id="go_to_3" class="sphere button" onClick="bring('woda')">Podaj wodę</div>
+        </div>
+  </div>
 </div> 
  
 </body>
