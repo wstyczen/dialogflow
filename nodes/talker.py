@@ -6,9 +6,10 @@ from std_msgs.msg import String, Bool
 from tiago_msgs.msg import Command
 
 
-from sound_play.msg import SoundRequest
-from sound_play.libsoundplay import SoundClient
+#from sound_play.msg import SoundRequest
+#from sound_play.libsoundplay import SoundClient
 
+import pygame.mixer
 
 import copy
 import sys
@@ -140,11 +141,13 @@ pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('rico_cmd', Command, queue_size=10)
 pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 
-soundhandle = SoundClient()
+#soundhandle = SoundClient()
 
 def playBlockingsound(fname):
     pub_vad_active.publish(False)
-    soundhandle.playWave(fname, 1, blocking=True)
+    #soundhandle.playWave(fname, 1, blocking=True)
+    pygame.mixer.music.load(fname)
+    pygame.mixer.music.play(0)
     pub_vad_active.publish(True)
 
 
@@ -314,6 +317,8 @@ def callbackRicoSays(data, sentence_dict):
         playBlockingsound(sentence_dict[best_k])
 
 def listener():
+    pygame.init()
+
     # In ROS, nodes are uniquely named. If two nodes with the same
     # name are launched, the previous one is kicked off. The
     # anonymous=True flag means that rospy will choose a unique
