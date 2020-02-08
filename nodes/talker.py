@@ -26,11 +26,12 @@ import pl_nouns.odmiana as ro
 
 # Action server for speaking text sentences
 class SaySentenceActionServer(object):
-    def __init__(self, name, playback_queue, odm, sentence_dict):
+    def __init__(self, name, playback_queue, odm, sentence_dict, agent_name):
         self._action_name = name
         self._playback_queue = playback_queue
         self._odm = odm
         self._sentence_dict = sentence_dict
+        self._agent_name = agent_name
         self._as = actionlib.SimpleActionServer(self._action_name, tiago_msgs.msg.SaySentenceAction, execute_cb=self.execute_cb, auto_start = False)
         self._as.start()
       
@@ -44,22 +45,30 @@ class SaySentenceActionServer(object):
         pub_txt_msg.publish(sentence_uni)
 
         ss = strip_inter(sentence_uni).strip().upper()
-        best_k = ""
-        best_d = 999
-        print "Searching best match for", ss 
-        for k in self._sentence_dict.keys():
-            #print k, v
-            d = distance(k, ss)
-        #    print k, d
-            if d < best_d:
-                best_d = d
-                best_k = k
+        if sentence_uni.startswith(u'odpowiedz blabla'):
+            print 'detected "odpowiedz blabla"'
+            response, sound_fname = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl")
+            print 'received response:', response.query_result
+            best_d = 0
+            best_k = None
+        else:
+            best_k = ""
+            best_d = 999
+            print "Searching best match for", ss 
+            for k in self._sentence_dict.keys():
+                #print k, v
+                d = distance(k, ss)
+            #    print k, d
+                if d < best_d:
+                    best_d = d
+                    best_k = k
+            sound_fname = (self._sentence_dict[best_k], 'keep')
 
         print u'Starting action for "' + sentence_uni + u'"'
         success = True
         if best_d < 5:
-            print "Wiem co powiedzieć!", ss, best_k, self._sentence_dict[best_k]
-            sound_id = self._playback_queue.addSound( (self._sentence_dict[best_k], 'keep') )
+            print "Wiem co powiedzieć!", ss, best_k, sound_fname
+            sound_id = self._playback_queue.addSound( sound_fname )
 
             while not self._playback_queue.finishedSoundId(sound_id) and not rospy.is_shutdown():
                 # check that preempt has not been requested by the client
@@ -430,9 +439,7 @@ def listener():
 
     rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name, playback_queue))
 
-    #rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, sentence_dict))
-
-    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict)
+    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict, agent_name)
 
     # spin() simply keeps python from exiting until this node is stopped
     while not rospy.is_shutdown():
