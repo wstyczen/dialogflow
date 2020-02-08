@@ -55,6 +55,7 @@ class SaySentenceActionServer(object):
                 best_d = d
                 best_k = k
 
+        print u'Starting action for "' + sentence_uni + u'"'
         success = True
         if best_d < 5:
             print "Wiem co powiedzieć!", ss, best_k, self._sentence_dict[best_k]
@@ -69,11 +70,13 @@ class SaySentenceActionServer(object):
                     break
                 self._as.publish_feedback(_feedback)
                 rospy.sleep(0.1)
-        
+
         if success:
             rospy.loginfo('%s: Succeeded' % self._action_name)
             _result.success = True
             self._as.set_succeeded(_result)
+
+        print u'Ended action for "' + sentence_uni + u'"', success
 
 def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
     """Returns the result of detect intent with an audio file as input.
@@ -238,14 +241,14 @@ class PlaybackQueue:
                 raise Exception('Wrong keep_mode: "' + keep_mode + '"')
 
     def finishedSoundId(self, sound_id):
-        result = False
+        result = True
         self.__queue_lock__.acquire()
         if self.__current_sound_id__ == sound_id:
-            result = True
+            result = False
         else:
             for s_id, _ in self.__queue__:
                 if s_id == sound_id:
-                    result = True
+                    result = False
                     break
         self.__queue_lock__.release()
         return result
