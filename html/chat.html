@@ -29,6 +29,12 @@
     messageType : 'std_msgs/String'
   });
 
+  var txt_voice_cmd_listener = new ROSLIB.Topic({
+    ros : ros,
+    name : '/txt_voice_cmd_msg',
+    messageType : 'std_msgs/String'
+  });
+
   var voice_status_listener = new ROSLIB.Topic({
     ros : ros,
     name : '/voice_status',
@@ -78,6 +84,12 @@
     //document.getElementById("msg").innerHTML = m.data;
     console.log(m.data);
     addSentence(m.data, "repl", "Rico");
+  });
+
+  txt_voice_cmd_listener.subscribe(function(m) {
+    //document.getElementById("msg").innerHTML = m.data;
+    console.log(m.data);
+    addSentence(m.data, "request", "You (voice)");
   });
 
   voice_status_listener.subscribe(function(m) {

@@ -4,7 +4,8 @@
 import rospy
 from std_msgs.msg import String, Bool
 from tiago_msgs.msg import Command
-
+import time
+import tempfile
 
 #from sound_play.msg import SoundRequest
 #from sound_play.libsoundplay import SoundClient
@@ -71,12 +72,16 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
 #    print(u'Fulfillment text: {}\n'.format(
 #        response.query_result.fulfillment_text))
 
-    with open('/tmp/output.wav', 'wb') as out:
-        out.write(response.output_audio)
-        print('Audio content written to file "output.wav"')
+    #with open('/tmp/output.wav', 'wb') as out:
+    #    out.write(response.output_audio)
+    #    print('Audio content written to file "output.wav"')
 
-    return response
+    out = tempfile.NamedTemporaryFile(delete=False)
+    out.write(response.output_audio)
+    fname = out.name
+    out.close()
 
+    return response, (fname, 'delete')
 
 def detect_intent_text(project_id, session_id, text, language_code):
     """Returns the result of detect intent with an audio file as input.
@@ -128,92 +133,114 @@ def detect_intent_text(project_id, session_id, text, language_code):
 #    print(u'Fulfillment text: {}\n'.format(
 #        response.query_result.fulfillment_text))
 
-    with open('/tmp/output.wav', 'wb') as out:
-        out.write(response.output_audio)
-        print('Audio content written to file "output.wav"')
+    #with open('/tmp/output.wav', 'wb') as out:
+    #    out.write(response.output_audio)
+    #    print('Audio content written to file "output.wav"')
+    out = tempfile.NamedTemporaryFile(delete=False)
+    out.write(response.output_audio)
+    fname = out.name
+    out.close()
+    print('Audio content written to temporary file')
         
-    return response
+    return response, (fname, 'delete')
 
 #detect_intent_audio("fiery-set-259318", "test_sess_01", sys.argv[1], "pl")
 
 
 pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
+pub_txt_voice_cmd_msg = rospy.Publisher('txt_voice_cmd_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('rico_cmd', Command, queue_size=10)
 pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 
 #soundhandle = SoundClient()
 
-def playBlockingsound(fname):
-    pub_vad_active.publish(False)
-    #soundhandle.playWave(fname, 1, blocking=True)
-    pygame.mixer.music.load(fname)
-    pygame.mixer.music.play(0)
-    pub_vad_active.publish(True)
+class PlaybackQueue:
+    def __init__(self):
+        self.__queue__ = []
 
+    def spin_once(self):
+        if bool(self.__queue__):
+            fname, keep_mode = self.__queue__.pop(0)
+            self.__playBlockingsound__(fname)
+            if keep_mode == 'delete':
+                os.remove(fname)
+            elif keep_mode == 'keep':
+                # do nothing
+                pass
+            else:
+                raise Exception('Wrong keep_mode: "' + keep_mode + '"')
+
+    def addSound(self, sound_file):
+        assert sound_file[1] == 'keep' or sound_file[1] == 'delete'
+        self.__queue__.append( sound_file )
+
+    def __playBlockingsound__(self, fname):
+        pub_vad_active.publish(False)
+        print 'playBlockingsound: BEGIN'
+        print '  file:', fname
+        #soundhandle.playWave(fname, 1, blocking=True)
+
+        SONG_END = pygame.USEREVENT + 1
+        pygame.mixer.music.set_endevent(SONG_END)
+        pygame.mixer.music.load(fname)
+        pygame.mixer.music.play(0)
+
+        timeout = time.time() + 15   # 15 seconds from now
+
+        finished = False
+        while not finished:
+            for event in pygame.event.get():
+                if event.type == SONG_END:
+                    print "the song ended!"
+                    finished = True
+            if time.time() > timeout:
+                print "timeout - assuming the sound play ended"
+                finished = True
+            time.sleep(0.1)
+        print 'playBlockingsound: END'
+        pub_vad_active.publish(True)
+
+playback_queue = PlaybackQueue()
+
+def callback_common(response, sound_file):
+    if len(response.query_result.fulfillment_text) > 0:
+        pub_txt_msg.publish(response.query_result.fulfillment_text)
+        playback_queue.addSound(sound_file)
+
+    print response.query_result
+
+    cmd = Command()
+    cmd.query_text = response.query_result.query_text
+    cmd.intent_name = response.query_result.intent.name
+    for param_name, param in response.query_result.parameters.fields.iteritems():
+
+        param_str = unicode(param)
+        colon_idx = param_str.find(':')
+        param_type = param_str[0:colon_idx]
+        assert param_type == 'string_value'
+        param_value = param_str[colon_idx+1:].strip()[1:-1]
+
+        print 'param_name: "' + param_name + '"'
+        print 'param_type: "' + param_type + '"'
+        print 'param_value: "' + param_value + '"'
+
+        cmd.param_names.append( param_name )
+        cmd.param_values.append( param_value )
+
+    cmd.confidence = response.query_result.intent_detection_confidence
+    cmd.response_text = response.query_result.fulfillment_text
+    pub_cmd.publish(cmd)
 
 def callback(data, agent_name):
     rospy.loginfo("I heard %s", data.data)
-    response = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
-    if len(response.query_result.fulfillment_text) > 0:
-        pub_txt_msg.publish(response.query_result.fulfillment_text)
-        playBlockingsound("/tmp/output.wav")
-
-    print response.query_result
-
-    cmd = Command()
-    cmd.query_text = response.query_result.query_text
-    cmd.intent_name = response.query_result.intent.name
-    for param_name, param in response.query_result.parameters.fields.iteritems():
-
-        param_str = unicode(param)
-        colon_idx = param_str.find(':')
-        param_type = param_str[0:colon_idx]
-        assert param_type == 'string_value'
-        param_value = param_str[colon_idx+1:].strip()[1:-1]
-
-        print 'param_name: "' + param_name + '"'
-        print 'param_type: "' + param_type + '"'
-        print 'param_value: "' + param_value + '"'
-
-        cmd.param_names.append( param_name )
-        cmd.param_values.append( param_value )
-
-    cmd.confidence = response.query_result.intent_detection_confidence
-    cmd.response_text = response.query_result.fulfillment_text
-    pub_cmd.publish(cmd)
-
-
+    response, sound_file = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
+    callback_common(response, sound_file)
 
 def callback_wav(data, agent_name):
     rospy.loginfo("I recorded %s", data.data)
-    response = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
-    if len(response.query_result.fulfillment_text) > 0:
-        pub_txt_msg.publish(response.query_result.fulfillment_text)
-        playBlockingsound("/tmp/output.wav")
-
-    print response.query_result
-
-    cmd = Command()
-    cmd.query_text = response.query_result.query_text
-    cmd.intent_name = response.query_result.intent.name
-    for param_name, param in response.query_result.parameters.fields.iteritems():
-
-        param_str = unicode(param)
-        colon_idx = param_str.find(':')
-        param_type = param_str[0:colon_idx]
-        assert param_type == 'string_value'
-        param_value = param_str[colon_idx+1:].strip()[1:-1]
-
-        print 'param_name: "' + param_name + '"'
-        print 'param_type: "' + param_type + '"'
-        print 'param_value: "' + param_value + '"'
-
-        cmd.param_names.append( param_name )
-        cmd.param_values.append( param_value )
-
-    cmd.confidence = response.query_result.intent_detection_confidence
-    cmd.response_text = response.query_result.fulfillment_text
-    pub_cmd.publish(cmd)
+    response, sound_file = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
+    pub_txt_voice_cmd_msg.publish(response.query_result.query_text)
+    callback_common(response, sound_file)
 
 class Odmieniacz:
     def __init__(self):
@@ -314,7 +341,7 @@ def callbackRicoSays(data, sentence_dict):
 
     if best_d < 5:
         print "Wiem co powiedzieć!", ss, best_k, sentence_dict[best_k]
-        playBlockingsound(sentence_dict[best_k])
+        playback_queue.addSound( (sentence_dict[best_k], 'keep') )
 
 def listener():
     pygame.init()
@@ -342,7 +369,9 @@ def listener():
     rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, sentence_dict))
 
     # spin() simply keeps python from exiting until this node is stopped
-    rospy.spin()
+    while not rospy.is_shutdown():
+        playback_queue.spin_once()
+        rospy.sleep(0.1)
 
 if __name__ == '__main__':
     listener()
