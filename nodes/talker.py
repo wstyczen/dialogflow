@@ -24,6 +24,39 @@ import codecs
 
 import pl_nouns.odmiana as ro
 
+
+
+import pyaudio
+import wave
+
+def play_sound(fname, start_pos):
+    try:
+        # open wave file
+        wave_file = wave.open(fname, 'rb')
+
+        # initialize audio
+        py_audio = pyaudio.PyAudio()
+        stream = py_audio.open(format=py_audio.get_format_from_width(wave_file.getsampwidth()),
+                               channels=wave_file.getnchannels(),
+                               rate=wave_file.getframerate(),
+                               output=True)
+
+        # skip unwanted frames
+        n_frame_start = int(start_pos * wave_file.getframerate())
+        wave_file.setpos(n_frame_start)
+
+        # write desired frames to audio buffer
+        n_frames = wave_file.getnframes() - n_frame_start + 1 #int(length * wave_file.getframerate())
+        frames = wave_file.readframes(n_frames)
+        stream.write(frames)
+
+        # close and terminate everything properly
+        stream.close()
+        py_audio.terminate()
+        wave_file.close()
+    except Exception as e:
+        print e
+
 # Action server for speaking text sentences
 class SaySentenceActionServer(object):
     def __init__(self, name, playback_queue, odm, sentence_dict, agent_name):
@@ -45,9 +78,10 @@ class SaySentenceActionServer(object):
         pub_txt_msg.publish(sentence_uni)
 
         ss = strip_inter(sentence_uni).strip().upper()
-        if sentence_uni.startswith(u'odpowiedz blabla'):
-            print 'detected "odpowiedz blabla"'
+        if sentence_uni.startswith(u'niekorzystne warunki pogodowe'):
+            print 'detected "niekorzystne warunki pogodowe"'
             response, sound_fname = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl")
+            sound_fname = (sound_fname[0], sound_fname[1], 0)
             print 'received response:', response.query_result
             best_d = 0
             best_k = None
@@ -62,7 +96,8 @@ class SaySentenceActionServer(object):
                 if d < best_d:
                     best_d = d
                     best_k = k
-            sound_fname = (self._sentence_dict[best_k], 'keep')
+            # start at 0.6 to cut out 'blabla'
+            sound_fname = (self._sentence_dict[best_k], 'keep', 0.0)
 
         print u'Starting action for "' + sentence_uni + u'"'
         success = True
@@ -149,7 +184,7 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
     fname = out.name
     out.close()
 
-    return response, (fname, 'delete')
+    return response, (fname, 'delete', 0.0)
 
 def detect_intent_text(project_id, session_id, text, language_code):
     """Returns the result of detect intent with an audio file as input.
@@ -210,7 +245,7 @@ def detect_intent_text(project_id, session_id, text, language_code):
     out.close()
     print('Audio content written to temporary file')
         
-    return response, (fname, 'delete')
+    return response, (fname, 'delete', 0.0)
 
 #detect_intent_audio("fiery-set-259318", "test_sess_01", sys.argv[1], "pl")
 
@@ -233,11 +268,11 @@ class PlaybackQueue:
         fname = None
         self.__queue_lock__.acquire()
         if bool(self.__queue__):
-            sound_id, (fname, keep_mode) = self.__queue__.pop(0)
+            sound_id, (fname, keep_mode, start_time) = self.__queue__.pop(0)
             self.__current_sound_id__ = sound_id
         self.__queue_lock__.release()
         if fname:
-            self.__playBlockingsound__(fname)
+            self.__playBlockingsound__(fname, start_time)
             self.__queue_lock__.acquire()
             self.__current_sound_id__ = None
             self.__queue_lock__.release()
@@ -271,12 +306,13 @@ class PlaybackQueue:
         self.__queue_lock__.release()
         return result_sound_id
 
-    def __playBlockingsound__(self, fname):
+    def __playBlockingsound__(self, fname, start_time):
         pub_vad_active.publish(False)
         print 'playBlockingsound: BEGIN'
         print '  file:', fname
         #soundhandle.playWave(fname, 1, blocking=True)
 
+        '''
         SONG_END = pygame.USEREVENT + 1
         pygame.mixer.music.set_endevent(SONG_END)
         pygame.mixer.music.load(fname)
@@ -294,7 +330,11 @@ class PlaybackQueue:
                 print "timeout - assuming the sound play ended"
                 finished = True
             time.sleep(0.1)
+        '''
+
+        play_sound(fname, start_time)
         print 'playBlockingsound: END'
+
         pub_vad_active.publish(True)
 
 def callback_common(response, sound_file, playback_queue):
@@ -434,6 +474,24 @@ def listener():
     for sent, fname in izip(codecs.open(os.path.join(data_dir, "labels.txt"), encoding="utf-8"), open(os.path.join(data_dir, "files.txt"))):
         ss = unicode(sent) 
         sentence_dict[strip_inter(ss).strip().upper()] = os.path.join(data_dir, fname.strip())
+    '''
+    rospy.sleep(1)
+    key0 = sentence_dict.keys()[0]
+    fname = sentence_dict[key0]
+    print 'fname', fname
+    play_sound(fname, 0.5)
+    print 'end'
+    #pygame.mixer.music.load(fname)
+    #pygame.mixer.music.play(0, 0.5)
+    rospy.sleep(2)
+    exit(0)
+    '''
+    #text = raw_input('.')
+    #response, sound_fname = detect_intent_text(agent_name, "test_sess_012", u'niekorzystne warunki pogodowe ' + text, "pl")
+    #sound_fname = (sound_fname[0], sound_fname[1], 0.6)
+    #play_sound(sound_fname[0], 0.0)
+    #print 'received response:', response.query_result
+    #exit(0)
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name, playback_queue))
 
