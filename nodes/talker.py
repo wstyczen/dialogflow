@@ -1,14 +1,19 @@
 #!/usr/bin/env python
 # encoding: utf8
 
+import threading
 import rospy
+import actionlib
 from std_msgs.msg import String, Bool
-from tiago_msgs.msg import Command
+import tiago_msgs.msg
+
 import time
 import tempfile
 
 #from sound_play.msg import SoundRequest
 #from sound_play.libsoundplay import SoundClient
+
+from Levenshtein import distance
 
 import pygame.mixer
 
@@ -18,6 +23,57 @@ import os
 import codecs
 
 import pl_nouns.odmiana as ro
+
+# Action server for speaking text sentences
+class SaySentenceActionServer(object):
+    def __init__(self, name, playback_queue, odm, sentence_dict):
+        self._action_name = name
+        self._playback_queue = playback_queue
+        self._odm = odm
+        self._sentence_dict = sentence_dict
+        self._as = actionlib.SimpleActionServer(self._action_name, tiago_msgs.msg.SaySentenceAction, execute_cb=self.execute_cb, auto_start = False)
+        self._as.start()
+      
+    def execute_cb(self, goal):
+        # create messages that are used to publish feedback/result
+        _feedback = tiago_msgs.msg.SaySentenceFeedback()
+        _result = tiago_msgs.msg.SaySentenceResult()
+
+        sentence_uni = goal.sentence.decode('utf-8')
+        sentence_uni = self._odm.odmien(sentence_uni)
+        pub_txt_msg.publish(sentence_uni)
+
+        ss = strip_inter(sentence_uni).strip().upper()
+        best_k = ""
+        best_d = 999
+        print "Searching best match for", ss 
+        for k in self._sentence_dict.keys():
+            #print k, v
+            d = distance(k, ss)
+        #    print k, d
+            if d < best_d:
+                best_d = d
+                best_k = k
+
+        success = True
+        if best_d < 5:
+            print "Wiem co powiedzieć!", ss, best_k, self._sentence_dict[best_k]
+            sound_id = self._playback_queue.addSound( (self._sentence_dict[best_k], 'keep') )
+
+            while not self._playback_queue.finishedSoundId(sound_id) and not rospy.is_shutdown():
+                # check that preempt has not been requested by the client
+                if self._as.is_preempt_requested():
+                    rospy.loginfo('%s: Preempted' % self._action_name)
+                    self._as.set_preempted()
+                    success = False
+                    break
+                self._as.publish_feedback(_feedback)
+                rospy.sleep(0.1)
+        
+        if success:
+            rospy.loginfo('%s: Succeeded' % self._action_name)
+            _result.success = True
+            self._as.set_succeeded(_result)
 
 def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
     """Returns the result of detect intent with an audio file as input.
@@ -149,7 +205,7 @@ def detect_intent_text(project_id, session_id, text, language_code):
 
 pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_txt_voice_cmd_msg = rospy.Publisher('txt_voice_cmd_msg', String, queue_size=10)
-pub_cmd = rospy.Publisher('rico_cmd', Command, queue_size=10)
+pub_cmd = rospy.Publisher('rico_cmd', tiago_msgs.msg.Command, queue_size=10)
 pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 
 #soundhandle = SoundClient()
@@ -157,11 +213,22 @@ pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
 class PlaybackQueue:
     def __init__(self):
         self.__queue__ = []
+        self.__queue_lock__ = threading.Lock()
+        self.__sound_id__ = 0
+        self.__current_sound_id__ = None
 
     def spin_once(self):
+        fname = None
+        self.__queue_lock__.acquire()
         if bool(self.__queue__):
-            fname, keep_mode = self.__queue__.pop(0)
+            sound_id, (fname, keep_mode) = self.__queue__.pop(0)
+            self.__current_sound_id__ = sound_id
+        self.__queue_lock__.release()
+        if fname:
             self.__playBlockingsound__(fname)
+            self.__queue_lock__.acquire()
+            self.__current_sound_id__ = None
+            self.__queue_lock__.release()
             if keep_mode == 'delete':
                 os.remove(fname)
             elif keep_mode == 'keep':
@@ -170,9 +237,27 @@ class PlaybackQueue:
             else:
                 raise Exception('Wrong keep_mode: "' + keep_mode + '"')
 
+    def finishedSoundId(self, sound_id):
+        result = False
+        self.__queue_lock__.acquire()
+        if self.__current_sound_id__ == sound_id:
+            result = True
+        else:
+            for s_id, _ in self.__queue__:
+                if s_id == sound_id:
+                    result = True
+                    break
+        self.__queue_lock__.release()
+        return result
+
     def addSound(self, sound_file):
         assert sound_file[1] == 'keep' or sound_file[1] == 'delete'
-        self.__queue__.append( sound_file )
+        self.__queue_lock__.acquire()
+        self.__queue__.append( (self.__sound_id__, sound_file) )
+        result_sound_id = self.__sound_id__
+        self.__sound_id__ = self.__sound_id__ + 1
+        self.__queue_lock__.release()
+        return result_sound_id
 
     def __playBlockingsound__(self, fname):
         pub_vad_active.publish(False)
@@ -200,16 +285,14 @@ class PlaybackQueue:
         print 'playBlockingsound: END'
         pub_vad_active.publish(True)
 
-playback_queue = PlaybackQueue()
-
-def callback_common(response, sound_file):
+def callback_common(response, sound_file, playback_queue):
     if len(response.query_result.fulfillment_text) > 0:
         pub_txt_msg.publish(response.query_result.fulfillment_text)
         playback_queue.addSound(sound_file)
 
     print response.query_result
 
-    cmd = Command()
+    cmd = tiago_msgs.msg.Command()
     cmd.query_text = response.query_result.query_text
     cmd.intent_name = response.query_result.intent.name
     for param_name, param in response.query_result.parameters.fields.iteritems():
@@ -231,16 +314,16 @@ def callback_common(response, sound_file):
     cmd.response_text = response.query_result.fulfillment_text
     pub_cmd.publish(cmd)
 
-def callback(data, agent_name):
+def callback(data, agent_name, playback_queue):
     rospy.loginfo("I heard %s", data.data)
     response, sound_file = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
-    callback_common(response, sound_file)
+    callback_common(response, sound_file, playback_queue)
 
-def callback_wav(data, agent_name):
+def callback_wav(data, agent_name, playback_queue):
     rospy.loginfo("I recorded %s", data.data)
     response, sound_file = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
     pub_txt_voice_cmd_msg.publish(response.query_result.query_text)
-    callback_common(response, sound_file)
+    callback_common(response, sound_file, playback_queue)
 
 class Odmieniacz:
     def __init__(self):
@@ -315,36 +398,10 @@ class Odmieniacz:
             result = result[0:l_brace_idx] + word_p + result[r_brace_idx+1:]
         return result
 
-odm = Odmieniacz()
-
 def strip_inter(string):
     return string.replace(".", "").replace(",","")
 
-def callbackRicoSays(data, sentence_dict):
-    global odm
-    data_uni = data.data.decode('utf-8')
-    data_uni = odm.odmien(data_uni)
-    pub_txt_msg.publish(data_uni)
-
-    from Levenshtein import distance
-    ss = strip_inter(data_uni).strip().upper()
-    best_k = ""
-    best_d = 999
-    print "Searching best match for", ss 
-    for k in sentence_dict.keys():
-        #print k, v
-        d = distance(k, ss)
-    #    print k, d
-        if d < best_d:
-            best_d = d
-            best_k = k
-
-    if best_d < 5:
-        print "Wiem co powiedzieć!", ss, best_k, sentence_dict[best_k]
-        playback_queue.addSound( (sentence_dict[best_k], 'keep') )
-
 def listener():
-    pygame.init()
 
     # In ROS, nodes are uniquely named. If two nodes with the same
     # name are launched, the previous one is kicked off. The
@@ -352,6 +409,10 @@ def listener():
     # name for our 'listener' node so that multiple listeners can
     # run simultaneously.
     rospy.init_node('talker', anonymous=True)
+    pygame.init()
+
+    odm = Odmieniacz()
+    playback_queue = PlaybackQueue()
 
     agent_name = rospy.get_param('~agent_name')
     data_dir = rospy.get_param('~data_dir')
@@ -362,11 +423,13 @@ def listener():
         ss = unicode(sent) 
         sentence_dict[strip_inter(ss).strip().upper()] = os.path.join(data_dir, fname.strip())
 
-    rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name))
+    rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name, playback_queue))
 
-    rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name))
+    rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name, playback_queue))
 
-    rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, sentence_dict))
+    #rospy.Subscriber("rico_says", String, lambda x: callbackRicoSays(x, sentence_dict))
+
+    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict)
 
     # spin() simply keeps python from exiting until this node is stopped
     while not rospy.is_shutdown():
