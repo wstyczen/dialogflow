@@ -59,12 +59,13 @@ def play_sound(fname, start_pos):
 
 # Action server for speaking text sentences
 class SaySentenceActionServer(object):
-    def __init__(self, name, playback_queue, odm, sentence_dict, agent_name):
+    def __init__(self, name, playback_queue, odm, sentence_dict, agent_name, cred_file):
         self._action_name = name
         self._playback_queue = playback_queue
         self._odm = odm
         self._sentence_dict = sentence_dict
         self._agent_name = agent_name
+        self._cred_file = cred_file
         self._as = actionlib.SimpleActionServer(self._action_name, tiago_msgs.msg.SaySentenceAction, execute_cb=self.execute_cb, auto_start = False)
         self._as.start()
       
@@ -80,8 +81,8 @@ class SaySentenceActionServer(object):
         ss = strip_inter(sentence_uni).strip().upper()
         if sentence_uni.startswith(u'niekorzystne warunki pogodowe'):
             print 'detected "niekorzystne warunki pogodowe"'
-            response, sound_fname = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl")
-            sound_fname = (sound_fname[0], sound_fname[1], 0)
+            response, sound_fname = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl", self._cred_file)
+            sound_fname = (sound_fname[0], sound_fname[1], 2.1)     # Cut 'niekorzystne warunki pogodowe'
             print 'received response:', response.query_result
             best_d = 0
             best_k = None
@@ -96,7 +97,6 @@ class SaySentenceActionServer(object):
                 if d < best_d:
                     best_d = d
                     best_k = k
-            # start at 0.6 to cut out 'blabla'
             sound_fname = (self._sentence_dict[best_k], 'keep', 0.0)
 
         print u'Starting action for "' + sentence_uni + u'"'
@@ -122,14 +122,14 @@ class SaySentenceActionServer(object):
 
         print u'Ended action for "' + sentence_uni + u'"', success
 
-def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
+def detect_intent_audio(project_id, session_id, audio_file_path, language_code, cred_file):
     """Returns the result of detect intent with an audio file as input.
 
     Using the same `session_id` between requests allows continuation
     of the conversation."""
     import dialogflow_v2 as dialogflow
 
-    session_client = dialogflow.SessionsClient()
+    session_client = dialogflow.SessionsClient.from_service_account_file(cred_file)
 
     # Note: hard coding audio_encoding and sample_rate_hertz for simplicity.
     audio_encoding = dialogflow.enums.AudioEncoding.AUDIO_ENCODING_LINEAR_16
@@ -186,14 +186,14 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code):
 
     return response, (fname, 'delete', 0.0)
 
-def detect_intent_text(project_id, session_id, text, language_code):
+def detect_intent_text(project_id, session_id, text, language_code, cred_file):
     """Returns the result of detect intent with an audio file as input.
 
     Using the same `session_id` between requests allows continuation
     of the conversation."""
     import dialogflow_v2 as dialogflow
 
-    session_client = dialogflow.SessionsClient()
+    session_client = dialogflow.SessionsClient.from_service_account_file(cred_file)
 
     # Note: hard coding audio_encoding and sample_rate_hertz for simplicity.
     audio_encoding = dialogflow.enums.AudioEncoding.AUDIO_ENCODING_LINEAR_16
@@ -366,14 +366,14 @@ def callback_common(response, sound_file, playback_queue):
     cmd.response_text = response.query_result.fulfillment_text
     pub_cmd.publish(cmd)
 
-def callback(data, agent_name, playback_queue):
+def callback(data, agent_name, playback_queue, cred_file):
     rospy.loginfo("I heard %s", data.data)
-    response, sound_file = detect_intent_text(agent_name, "test_sess_012", data.data, "pl")
+    response, sound_file = detect_intent_text(agent_name, "test_sess_012", data.data, "pl", cred_file)
     callback_common(response, sound_file, playback_queue)
 
-def callback_wav(data, agent_name, playback_queue):
+def callback_wav(data, agent_name, playback_queue, cred_file):
     rospy.loginfo("I recorded %s", data.data)
-    response, sound_file = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl")
+    response, sound_file = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl", cred_file)
     pub_txt_voice_cmd_msg.publish(response.query_result.query_text)
     callback_common(response, sound_file, playback_queue)
 
@@ -493,11 +493,19 @@ def listener():
     #print 'received response:', response.query_result
     #exit(0)
 
-    rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name, playback_queue))
+    if not 'GOOGLE_CREDENTIALS_INCARE_DIALOG' in os.environ:
+        raise Exception('Env variable "GOOGLE_CREDENTIALS_INCARE_DIALOG" is not set')
+    if not 'GOOGLE_CREDENTIALS_TEXT_TO_SPEECH' in os.environ:
+        raise Exception('Env variable "GOOGLE_CREDENTIALS_TEXT_TO_SPEECH" is not set')
 
-    rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name, playback_queue))
+    cred_file_incare_dialog = os.environ['GOOGLE_CREDENTIALS_INCARE_DIALOG']
+    cred_file_text_to_speech = os.environ['GOOGLE_CREDENTIALS_TEXT_TO_SPEECH']
 
-    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict, agent_name)
+    rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name, playback_queue, cred_file_incare_dialog))
+
+    rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name, playback_queue, cred_file_incare_dialog))
+
+    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict, 'text-to-speech-qtruau', cred_file_text_to_speech)
 
     # spin() simply keeps python from exiting until this node is stopped
     while not rospy.is_shutdown():
