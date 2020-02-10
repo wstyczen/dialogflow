@@ -68,7 +68,7 @@ class SaySentenceActionServer(object):
         self._cred_file = cred_file
         self._as = actionlib.SimpleActionServer(self._action_name, tiago_msgs.msg.SaySentenceAction, execute_cb=self.execute_cb, auto_start = False)
         self._as.start()
-      
+
     def execute_cb(self, goal):
         # create messages that are used to publish feedback/result
         _feedback = tiago_msgs.msg.SaySentenceFeedback()
@@ -76,17 +76,20 @@ class SaySentenceActionServer(object):
 
         sentence_uni = goal.sentence.decode('utf-8')
         sentence_uni = self._odm.odmien(sentence_uni)
-        pub_txt_msg.publish(sentence_uni)
 
+        prefix = u'niekorzystne warunki pogodowe'
+        prefix_time_length = 2.1
         ss = strip_inter(sentence_uni).strip().upper()
-        if sentence_uni.startswith(u'niekorzystne warunki pogodowe'):
-            print 'detected "niekorzystne warunki pogodowe"'
+        if sentence_uni.startswith( prefix ):
+            pub_txt_msg.publish( sentence_uni[len(prefix):] )
+            print u'detected "' + prefix + u'"'
             response, sound_fname = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl", self._cred_file)
-            sound_fname = (sound_fname[0], sound_fname[1], 2.1)     # Cut 'niekorzystne warunki pogodowe'
+            sound_fname = (sound_fname[0], sound_fname[1], prefix_time_length)     # Cut out the prefix
             print 'received response:', response.query_result
             best_d = 0
             best_k = None
         else:
+            pub_txt_msg.publish( sentence_uni )
             best_k = ""
             best_d = 999
             print "Searching best match for", ss 
@@ -338,10 +341,6 @@ class PlaybackQueue:
         pub_vad_active.publish(True)
 
 def callback_common(response, sound_file, playback_queue):
-    if len(response.query_result.fulfillment_text) > 0:
-        pub_txt_msg.publish(response.query_result.fulfillment_text)
-        playback_queue.addSound(sound_file)
-
     print response.query_result
 
     cmd = tiago_msgs.msg.Command()
@@ -365,6 +364,10 @@ def callback_common(response, sound_file, playback_queue):
     cmd.confidence = response.query_result.intent_detection_confidence
     cmd.response_text = response.query_result.fulfillment_text
     pub_cmd.publish(cmd)
+
+    if len(response.query_result.fulfillment_text) > 0:
+        pub_txt_msg.publish(response.query_result.fulfillment_text)
+        playback_queue.addSound(sound_file)
 
 def callback(data, agent_name, playback_queue, cred_file):
     rospy.loginfo("I heard %s", data.data)
