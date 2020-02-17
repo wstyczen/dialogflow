@@ -43,8 +43,8 @@ except:
 
 
 
-sys.path.append(os.path.join(os.path.dirname(__file__), 'pkgs/porcupine/binding/python'))
-sys.path.append(os.path.join(os.path.dirname(__file__), 'pkgs/porcupine/resources/util/python'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/binding/python'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/resources/util/python'))
 
 #import porcupine
 from porcupine import Porcupine
@@ -246,7 +246,7 @@ class PorcupineDemo(Thread):
                     self._recorded_frames.append(pcm)
 
                 result = porcupine.process(pcm)
-                if num_keywords == 1 and result:
+                if num_keywords == 1 and result or True:
                     print('[%s] detected keyword' % str(datetime.now()))
                     #self.quickplay(pa, wav_data, wf)
                     self.play_name ='on'
@@ -315,41 +315,34 @@ class PorcupineDemo(Thread):
         print("* recording: ")
 
         THR_VOICED = 4
-        THR_UNVOICED = 6
+        THR_UNVOICED = 10
         THR_TIME = 5
 
         num_unv = 0
         while not got_a_sentence and TimeUse <= THR_TIME:
-            
-            #chunk = stream.read(CHUNK_SIZE, False)
-            #decoded_block = np.fromstring(chunk, 'Int16')
-
             data = self.recorded_frames.get()
             chunk = data['orig']
             chunk_to_analyze = data['filt'][0:960]
             decoded_block = np.fromstring(chunk_to_analyze, 'Int16')
-            #filtered_block, zi = lfilter(b, a, decoded_block, zi=zi)
-            #filtered_block = filtered_block.astype(np.int16)
-            #chunk_to_analyze = pack('<' + ('h' * 480), *decoded_block[0:480])
-            #chunk_to_analyze = chunk[0:960]
-
-
-            #print " ", np.max(decoded_block), np.mean(np.abs(decoded_block))
-
+            orig_block = np.fromstring(chunk, 'Int16')
+ 
             # add WangS
             raw_data.extend(array('h', chunk))
-            index += CHUNK_SIZE
+            index += len(decoded_block)
             TimeUse = time.time() - StartTime
 
             power = np.mean(np.abs(decoded_block))
-            active = vad.is_speech(chunk_to_analyze, RATE) and power > 1000
+            sp_flag = vad.is_speech(chunk_to_analyze, RATE) 
+            active = sp_flag and power > 500
             if active:
                 num_unv = 0
             else:
                 num_unv = num_unv + 1
 
-            #sys.stdout.write('1' if active else '_')
-            
+
+            #sys.stdout.write('1'*int(power/100)+' ' + str(power) + '          \r' if sp_flag else '_'*int(power/100)+ ' ' + str(power) + '             \r')
+            sys.stdout.write('O' if active else '-')
+
             ring_buffer_flags[ring_buffer_index] = 1 if active else 0
             ring_buffer_index += 1
             ring_buffer_index %= NUM_WINDOW_CHUNKS
@@ -363,10 +356,10 @@ class PorcupineDemo(Thread):
                 ring_buffer.append(chunk)
                 num_voiced = sum(ring_buffer_flags)
                 if num_voiced > THR_VOICED:
-                    sys.stdout.write(' Open ')
+                    sys.stdout.write('<<')
                     ring_buffer_flags_end = [1] * NUM_WINDOW_CHUNKS_END
                     triggered = True
-                    start_point = index - CHUNK_SIZE * 8  # start point
+                    start_point = index - 512 * 8  # start point
                     # voiced_frames.extend(ring_buffer)
                     ring_buffer.clear()
             # end point detection
@@ -375,7 +368,7 @@ class PorcupineDemo(Thread):
                 ring_buffer.append(chunk)
                 num_unvoiced = NUM_WINDOW_CHUNKS_END - sum(ring_buffer_flags_end)
                 if num_unv > THR_UNVOICED or TimeUse > THR_TIME:
-                    sys.stdout.write(' Close ')
+                    sys.stdout.write('>>')
                     triggered = False
                     got_a_sentence = True
 

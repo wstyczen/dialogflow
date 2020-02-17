@@ -6,5 +6,7 @@
     <param name="data_dir" value="$(find dialogflow)/data" />
   </node>
 
+  <node pkg="dialogflow" type="vad.py" name="vad" args="--keywords 'hey pico' --sensitivities 0.9" />
+
   <!--<node name="soundplay_node" pkg="sound_play" type="soundplay_node.py"/>-->
 </launch>
