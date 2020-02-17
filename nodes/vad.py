@@ -53,6 +53,8 @@ from util import *
 
 from multiprocessing.queues import Queue
 
+DATA_DIR=os.path.join(os.path.dirname(__file__), '../data')
+
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
     low = lowcut / nyq
@@ -198,8 +200,8 @@ class PorcupineDemo(Thread):
         audio_stream = None
 
         # open the file for reading.
-        wf = wave.open('snd_on.wav', 'rb')
-        wg = wave.open('snd_off.wav', 'rb')
+        wf = wave.open(os.path.join(DATA_DIR, 'snd_on.wav'), 'rb')
+        wg = wave.open(os.path.join(DATA_DIR, 'snd_off.wav'), 'rb')
 
         try:
             porcupine = Porcupine(
