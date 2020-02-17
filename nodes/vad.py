@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf8
+
 #
 # Copyright 2018 Picovoice Inc.
 #
@@ -54,6 +57,8 @@ from util import *
 from multiprocessing.queues import Queue
 
 DATA_DIR=os.path.join(os.path.dirname(__file__), '../data')
+SAMPLE_RATE_REC=8000
+SAMPLE_RATE_WORK=16000
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
@@ -160,9 +165,12 @@ class PorcupineDemo(Thread):
 
     def audio_callback(self, in_data, frame_count, time_info, status):
         decoded_block = np.fromstring(in_data, 'Int16')
+        decoded_block = decoded_block.repeat(2, axis=0)
+        in_data = pack('<' + ('h' * len(decoded_block)), *decoded_block)
         filtered_block, self.zi = lfilter(self.b, self.a, decoded_block, zi=self.zi)
         filtered_block = filtered_block.astype(np.int16)
         chunk_to_analyze = pack('<' + ('h' * len(filtered_block)), *filtered_block)
+
 
         if self.play_name == '':
             self.recorded_frames.put({'orig': in_data, 'filt': chunk_to_analyze})
@@ -214,17 +222,18 @@ class PorcupineDemo(Thread):
 
             FILT_LOW = 400
             FILT_HIGH = 4000
-            self.b, self.a = butter_bandpass(FILT_LOW, FILT_HIGH, 16000, order=5)
+            self.b, self.a = butter_bandpass(FILT_LOW, FILT_HIGH, SAMPLE_RATE_WORK, order=5)
             self.zi = lfilter_zi(self.b, self.a)
 
             pa = pyaudio.PyAudio()
             audio_stream = pa.open(
-                rate=porcupine.sample_rate,
+                #rate=porcupine.sample_rate,
+                rate=SAMPLE_RATE_REC,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                output=True,
-                frames_per_buffer=porcupine.frame_length,
+                #output=True,
+                frames_per_buffer=porcupine.frame_length / 2,
                 input_device_index=self._input_device_index,
                 stream_callback=self.audio_callback)
 
@@ -248,7 +257,7 @@ class PorcupineDemo(Thread):
                     self._recorded_frames.append(pcm)
 
                 result = porcupine.process(pcm)
-                if num_keywords == 1 and result or True:
+                if num_keywords == 1 and result:
                     print('[%s] detected keyword' % str(datetime.now()))
                     #self.quickplay(pa, wav_data, wf)
                     self.play_name ='on'
@@ -282,7 +291,7 @@ class PorcupineDemo(Thread):
 
     def runvad(self):
         CHANNELS = 1
-        RATE = 16000
+        RATE = SAMPLE_RATE_WORK
         CHUNK_DURATION_MS = 30       # supports 10, 20 and 30 (ms)
         PADDING_DURATION_MS = 1500   # 1 sec jugement
         CHUNK_SIZE = int(RATE * CHUNK_DURATION_MS / 1000)  # chunk to read
@@ -316,7 +325,8 @@ class PorcupineDemo(Thread):
         TimeUse = 0
         print("* recording: ")
 
-        THR_VOICED = 4
+	
+        THR_VOICED = 5
         THR_UNVOICED = 10
         THR_TIME = 5
 
@@ -386,7 +396,7 @@ class PorcupineDemo(Thread):
             for index in range(start_point):
                 raw_data.pop()
             raw_data.reverse()
-            raw_data = normalize(raw_data)
+        #    raw_data = normalize(raw_data)
 
             now = datetime.now() # current date and time
 
@@ -433,37 +443,31 @@ def main():
 
     parser.add_argument('--show_audio_devices_info', action='store_true')
 
-    args = parser.parse_args()
+   # args,unknown = parser.parse_args()
 
-    if args.show_audio_devices_info:
-        PorcupineDemo.show_audio_devices_info()
+   # if args.show_audio_devices_info:
+   #     PorcupineDemo.show_audio_devices_info()
+   # else:
+   #     if args.keyword_file_paths is None:
+   #         if args.keywords is None:
+   #             raise ValueError('either --keywords or --keyword_file_paths must be set')
+
+   #         keywords = [x.strip() for x in args.keywords.split(',')]
+    keywords=['hey pico']       
+    if all(x in KEYWORDS for x in keywords):
+        keyword_file_paths = [KEYWORD_FILE_PATHS[x] for x in keywords]
     else:
-        if args.keyword_file_paths is None:
-            if args.keywords is None:
-                raise ValueError('either --keywords or --keyword_file_paths must be set')
+        raise ValueError('selected keywords are not available by default. available keywords are: %s' % ', '.join(KEYWORDS))
+    
+    sensitivities = [0.99]
 
-            keywords = [x.strip() for x in args.keywords.split(',')]
-
-            if all(x in KEYWORDS for x in keywords):
-                keyword_file_paths = [KEYWORD_FILE_PATHS[x] for x in keywords]
-            else:
-                raise ValueError(
-                    'selected keywords are not available by default. available keywords are: %s' % ', '.join(KEYWORDS))
-        else:
-            keyword_file_paths = [x.strip() for x in args.keyword_file_paths.split(',')]
-
-        if isinstance(args.sensitivities, float):
-            sensitivities = [args.sensitivities] * len(keyword_file_paths)
-        else:
-            sensitivities = [float(x) for x in args.sensitivities.split(',')]
-
-        PorcupineDemo(
-            library_path=args.library_path,
-            model_file_path=args.model_file_path,
+    PorcupineDemo(
+            library_path=LIBRARY_PATH,
+            model_file_path=MODEL_FILE_PATH,
             keyword_file_paths=keyword_file_paths,
             sensitivities=sensitivities,
-            output_path=args.output_path,
-            input_device_index=args.input_audio_device_index).run()
+            output_path=None,
+            input_device_index=2).run()
 
 
 if __name__ == '__main__':

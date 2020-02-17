@@ -131,7 +131,7 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
     Using the same `session_id` between requests allows continuation
     of the conversation."""
     import dialogflow_v2 as dialogflow
-
+    print 'detect_intent_audio'
     session_client = dialogflow.SessionsClient.from_service_account_file(cred_file)
 
     # Note: hard coding audio_encoding and sample_rate_hertz for simplicity.
@@ -181,6 +181,8 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
     #with open('/tmp/output.wav', 'wb') as out:
     #    out.write(response.output_audio)
     #    print('Audio content written to file "output.wav"')
+
+    print 'detect_intent_audio resp', response
 
     out = tempfile.NamedTemporaryFile(delete=False)
     out.write(response.output_audio)
