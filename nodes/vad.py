@@ -57,7 +57,7 @@ from util import *
 from multiprocessing.queues import Queue
 
 DATA_DIR=os.path.join(os.path.dirname(__file__), '../data')
-SAMPLE_RATE_REC=8000
+SAMPLE_RATE_REC=16000
 SAMPLE_RATE_WORK=16000
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
@@ -165,7 +165,7 @@ class PorcupineDemo(Thread):
 
     def audio_callback(self, in_data, frame_count, time_info, status):
         decoded_block = np.fromstring(in_data, 'Int16')
-        decoded_block = decoded_block.repeat(2, axis=0)
+#        decoded_block = decoded_block.repeat(2, axis=0)
         in_data = pack('<' + ('h' * len(decoded_block)), *decoded_block)
         filtered_block, self.zi = lfilter(self.b, self.a, decoded_block, zi=self.zi)
         filtered_block = filtered_block.astype(np.int16)
@@ -232,8 +232,8 @@ class PorcupineDemo(Thread):
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                #output=True,
-                frames_per_buffer=porcupine.frame_length / 2,
+                output=True,
+                frames_per_buffer=porcupine.frame_length,
                 input_device_index=self._input_device_index,
                 stream_callback=self.audio_callback)
 
@@ -331,8 +331,12 @@ class PorcupineDemo(Thread):
         THR_TIME = 5
 
         num_unv = 0
+        ignore = 5
         while not got_a_sentence and TimeUse <= THR_TIME:
             data = self.recorded_frames.get()
+            if ignore > 0:
+                ignore = ignore - 1
+                continue
             chunk = data['orig']
             chunk_to_analyze = data['filt'][0:960]
             decoded_block = np.fromstring(chunk_to_analyze, 'Int16')
@@ -467,7 +471,7 @@ def main():
             keyword_file_paths=keyword_file_paths,
             sensitivities=sensitivities,
             output_path=None,
-            input_device_index=2).run()
+            input_device_index=1).run()
 
 
 if __name__ == '__main__':
