@@ -447,6 +447,8 @@ def main():
 
     parser.add_argument('--show_audio_devices_info', action='store_true')
 
+    PorcupineDemo.show_audio_devices_info()
+
    # args,unknown = parser.parse_args()
 
    # if args.show_audio_devices_info:
@@ -471,7 +473,7 @@ def main():
             keyword_file_paths=keyword_file_paths,
             sensitivities=sensitivities,
             output_path=None,
-            input_device_index=1).run()
+            input_device_index=5).run()
 
 
 if __name__ == '__main__':
