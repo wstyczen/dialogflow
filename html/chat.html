@@ -156,6 +156,32 @@
     txt_publisher.publish(msg);
   }
 
+  stop = function(m) {
+    var msg = new ROSLIB.Message({
+      data: "zatrzymaj się"
+    });
+    txt_publisher.publish(msg);
+  }
+
+var cmd_publisher = new ROSLIB.Topic({
+    ros : ros,
+    name : '/rico_cmd',
+    messageType: 'tiago_msgs/Command'
+  });
+
+  call = function(m) {
+    var msg = new ROSLIB.Message({
+      query_text : '',
+      intent_name : 'intent_call',
+      param_names : ['miejsce'],
+      param_values : [m],
+      confidence : 1.0,
+      response_text : ''
+    });
+    cmd_publisher.publish(msg);
+  }
+
+
 	document.addEventListener("DOMContentLoaded", function(event) { 
 		// Get the input field
 		var input = document.getElementById("usermsg");
@@ -591,6 +617,12 @@ input[type=text] {
         </div>
         <div class="panel">
           <div id="go_to_3" class="sphere button" onClick="bring('woda')">Podaj wodę</div>
+        </div>
+        <div class="panel">
+          <div id="go_to_4" class="sphere button" onClick="call('fotel')">Przywołanie</div>
+        </div>
+        <div class="panel">
+          <div id="go_to_5" class="sphere button" onClick="stop()">Stop</div>
         </div>
           
       </div>

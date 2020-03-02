@@ -137,14 +137,21 @@ class PorcupineDemo(Thread):
         if self._output_path is not None:
             self._recorded_frames = []
 
+        self.__activate_vad_received = False
         if has_ros:
             print("Opening ros")
             rospy.init_node('vad', anonymous=True)
             print("Connecting to publisher")
             self.pub = rospy.Publisher('wav_send', String, queue_size=10)
+
+            self.sub = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
         else:
             self.pub = None
         print("Done")
+
+    def __activate_vad_callback(self, data):
+        print 'activate_vad_received'
+        self.__activate_vad_received = True
 
     def get_next_frame(self):
         if self.play_name == '':
@@ -257,13 +264,14 @@ class PorcupineDemo(Thread):
                     self._recorded_frames.append(pcm)
 
                 result = porcupine.process(pcm)
-                if num_keywords == 1 and result:
+                if (num_keywords == 1 and result) or self.__activate_vad_received:
                     print('[%s] detected keyword' % str(datetime.now()))
                     #self.quickplay(pa, wav_data, wf)
                     self.play_name ='on'
                     self.runvad()
                     self.play_name='off'
                     #self.quickplay(pa, wav2_data, wf)
+                    self.__activate_vad_received = False
 
 
                 elif num_keywords > 1 and result >= 0:

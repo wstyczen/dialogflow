@@ -15,7 +15,7 @@ import tempfile
 
 from Levenshtein import distance
 
-import pygame.mixer
+#import pygame.mixer
 
 import copy
 import sys
@@ -182,7 +182,7 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
     #    out.write(response.output_audio)
     #    print('Audio content written to file "output.wav"')
 
-    print 'detect_intent_audio resp', response
+    print 'detect_intent_audio resp', response.query_result
 
     out = tempfile.NamedTemporaryFile(delete=False)
     out.write(response.output_audio)
@@ -343,7 +343,10 @@ class PlaybackQueue:
         pub_vad_active.publish(True)
 
 def callback_common(response, sound_file, playback_queue):
-    print response.query_result
+    print u'query_result:'
+    print u'query_text: {}'.format( response.query_result.query_text )
+    print u'intent.name: {}'.format( response.query_result.intent.name )
+    print u'parameters: {}'.format( response.query_result.parameters )
 
     cmd = tiago_msgs.msg.Command()
     cmd.query_text = response.query_result.query_text
@@ -466,7 +469,7 @@ def listener():
     # name for our 'listener' node so that multiple listeners can
     # run simultaneously.
     rospy.init_node('talker', anonymous=True)
-    pygame.init()
+    #pygame.init()
 
     odm = Odmieniacz()
     playback_queue = PlaybackQueue()
