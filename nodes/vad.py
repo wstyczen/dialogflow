@@ -45,6 +45,26 @@ except:
 	has_ros = False
 
 
+# start recording after that many voiced frames
+THR_VOICED = 5
+
+# stop recording after that many unvoiced/silence frames
+THR_UNVOICED = 10
+
+# stop recording after that many seconds
+THR_TIME = 5
+
+# minimum volume (power) for voiced frames
+THR_POWER = 100
+
+# do normalize the output wave
+DO_NORMALIZE = True
+
+# device id
+DEVICE_ID = 6
+
+
+
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/binding/python'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/resources/util/python'))
@@ -242,6 +262,7 @@ class PorcupineDemo(Thread):
                 output=True,
                 frames_per_buffer=porcupine.frame_length,
                 input_device_index=self._input_device_index,
+                output_device_index=self._input_device_index,
                 stream_callback=self.audio_callback)
 
             # open stream based on the wave object which has been input.
@@ -334,9 +355,7 @@ class PorcupineDemo(Thread):
         print("* recording: ")
 
 	
-        THR_VOICED = 5
-        THR_UNVOICED = 10
-        THR_TIME = 5
+        
 
         num_unv = 0
         ignore = 5
@@ -357,7 +376,8 @@ class PorcupineDemo(Thread):
 
             power = np.mean(np.abs(decoded_block))
             sp_flag = vad.is_speech(chunk_to_analyze, RATE) 
-            active = sp_flag and power > 500
+            #active = sp_flag and power > 500
+            active = power > THR_POWER
             if active:
                 num_unv = 0
             else:
@@ -408,7 +428,9 @@ class PorcupineDemo(Thread):
             for index in range(start_point):
                 raw_data.pop()
             raw_data.reverse()
-        #    raw_data = normalize(raw_data)
+
+            if DO_NORMALIZE:
+                raw_data = normalize(raw_data)
 
             now = datetime.now() # current date and time
 
@@ -481,7 +503,7 @@ def main():
             keyword_file_paths=keyword_file_paths,
             sensitivities=sensitivities,
             output_path=None,
-            input_device_index=5).run()
+            input_device_index=DEVICE_ID).run()
 
 
 if __name__ == '__main__':
