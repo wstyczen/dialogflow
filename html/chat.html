@@ -8,9 +8,9 @@
 <script type="text/javascript" type="text/javascript">
   
   var ros = new ROSLIB.Ros({
-    url : 'ws://localhost:9090'
+    //url : 'ws://localhost:9090'
     //url : 'ws://192.168.18.66:9090'
-    //url : 'ws://192.168.18.212:9090'
+    url : 'ws://192.168.18.214:9090'
   });
 
   ros.on('connection', function() {
@@ -24,10 +24,16 @@
   ros.on('close', function() {
     document.getElementById("status").innerHTML = "Closed";
   });
-  
+
   var txt_listener = new ROSLIB.Topic({
     ros : ros,
     name : '/txt_msg',
+    messageType : 'std_msgs/String'
+  });
+  
+  var rico_pc_battery_listener = new ROSLIB.Topic({
+    ros : ros,
+    name : '/rico_pc_battery',
     messageType : 'std_msgs/String'
   });
 
@@ -101,6 +107,10 @@
     //document.getElementById("msg").innerHTML = m.data;
     console.log(m.data);
     addSentence(m.data, "repl", "Rico");
+  });
+
+  rico_pc_battery_listener.subscribe(function(m) {
+    document.getElementById("battery").innerHTML = m.data;
   });
 
   txt_voice_cmd_listener.subscribe(function(m) {
@@ -623,6 +633,9 @@ input[type=text] {
         </div>
         <div class="panel">
           <div id="go_to_5" class="sphere button" onClick="stop()">Stop</div>
+        </div>
+        <div class="panel">
+          <div id="battery" class="sphere button" >Battery:</div>
         </div>
           
       </div>

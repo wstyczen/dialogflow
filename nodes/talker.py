@@ -258,7 +258,7 @@ def detect_intent_text(project_id, session_id, text, language_code, cred_file):
 pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_txt_voice_cmd_msg = rospy.Publisher('txt_voice_cmd_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('rico_cmd', tiago_msgs.msg.Command, queue_size=10)
-pub_vad_active = rospy.Publisher('vad_active', Bool, queue_size=10)
+pub_vad_enabled = rospy.Publisher('vad_enabled', Bool, queue_size=10)
 
 #soundhandle = SoundClient()
 
@@ -312,7 +312,7 @@ class PlaybackQueue:
         return result_sound_id
 
     def __playBlockingsound__(self, fname, start_time):
-        pub_vad_active.publish(False)
+        pub_vad_enabled.publish(False)
         print 'playBlockingsound: BEGIN'
         print '  file:', fname
         #soundhandle.playWave(fname, 1, blocking=True)
@@ -340,7 +340,7 @@ class PlaybackQueue:
         play_sound(fname, start_time)
         print 'playBlockingsound: END'
 
-        pub_vad_active.publish(True)
+        pub_vad_enabled.publish(True)
 
 def callback_common(response, sound_file, playback_queue):
     print u'query_result:'

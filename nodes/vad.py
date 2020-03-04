@@ -158,13 +158,16 @@ class PorcupineDemo(Thread):
             self._recorded_frames = []
 
         self.__activate_vad_received = False
+        self.__vad_enabled = True
         if has_ros:
             print("Opening ros")
             rospy.init_node('vad', anonymous=True)
             print("Connecting to publisher")
             self.pub = rospy.Publisher('wav_send', String, queue_size=10)
 
-            self.sub = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
+            self.sub_activate_vad = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
+
+            self.sub_vad_enabled = rospy.Subscriber('vad_enabled', Bool, self.__vad_enabled_callback)
         else:
             self.pub = None
         print("Done")
@@ -172,6 +175,14 @@ class PorcupineDemo(Thread):
     def __activate_vad_callback(self, data):
         print 'activate_vad_received'
         self.__activate_vad_received = True
+
+    def __vad_enabled_callback(self, data):
+        if data.data == True:
+            self.__vad_enabled = True
+        elif data.data == False:
+            self.__vad_enabled = False
+        else:
+            raise
 
     def get_next_frame(self):
         if self.play_name == '':
@@ -285,7 +296,7 @@ class PorcupineDemo(Thread):
                     self._recorded_frames.append(pcm)
 
                 result = porcupine.process(pcm)
-                if (num_keywords == 1 and result) or self.__activate_vad_received:
+                if self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received ):
                     print('[%s] detected keyword' % str(datetime.now()))
                     #self.quickplay(pa, wav_data, wf)
                     self.play_name ='on'
@@ -355,11 +366,15 @@ class PorcupineDemo(Thread):
         print("* recording: ")
 
 	
-        
+        cancelled = False
 
         num_unv = 0
         ignore = 5
         while not got_a_sentence and TimeUse <= THR_TIME:
+            if not self.__vad_enabled:
+                cancelled = True
+                break
+
             data = self.recorded_frames.get()
             if ignore > 0:
                 ignore = ignore - 1
@@ -419,26 +434,29 @@ class PorcupineDemo(Thread):
             sys.stdout.flush()
 
         sys.stdout.write('\n')
-        print("* done recording")
-        if got_a_sentence:
-            got_a_sentence = False
+        if cancelled:
+            print '* vad cancelled'
+        else:
+            print("* done recording")
+            if got_a_sentence:
+                got_a_sentence = False
 
-            # write to file
-            raw_data.reverse()
-            for index in range(start_point):
-                raw_data.pop()
-            raw_data.reverse()
+                # write to file
+                raw_data.reverse()
+                for index in range(start_point):
+                    raw_data.pop()
+                raw_data.reverse()
 
-            if DO_NORMALIZE:
-                raw_data = normalize(raw_data)
+                if DO_NORMALIZE:
+                    raw_data = normalize(raw_data)
 
-            now = datetime.now() # current date and time
+                now = datetime.now() # current date and time
 
-            fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
-            record_to_file(fname, raw_data, 2, RATE)
-            print("Saved to " + fname)
-            if has_ros:
-                self.pub.publish(fname)
+                fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
+                record_to_file(fname, raw_data, 2, RATE)
+                print("Saved to " + fname)
+                if has_ros:
+                    self.pub.publish(fname)
 
 
 
