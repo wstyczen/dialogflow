@@ -46,7 +46,7 @@ class SentencesContainer:
             if len(fields) != 2:
                 raise Exception(u'Wrong format of line "{}"'.format(line))
             ns = fields[0].decode('utf8')
-            sound_fname = fields[1].decode('utf-8')
+            sound_fname = fields[1].decode('utf-8').strip()
             self.__sentences_map[ns] = sound_fname
             print ns, sound_fname
 
