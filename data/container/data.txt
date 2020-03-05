@@ -1,0 +1,19 @@
+nie wiem o co chodzi*sound_732645.wav
+jadę do kuchni*sound_978776.wav
+dojechałem do kuchni*sound_772296.wav
+podaj mi wodę i potwierdź*sound_680417.wav
+jadę do nieznane*sound_262138.wav
+dojechałem do nieznane*sound_470760.wav
+odbierz wodę i potwierdź*sound_783107.wav
+czekam na odebranie wody*sound_779044.wav
+wiozę wodę*sound_471210.wav
+zakończyłem zadanie*sound_462515.wav
+jadę do pokoju*sound_315989.wav
+dojechałem do pokoju*sound_558284.wav
+nic nie wiozę*sound_309274.wav
+jadę do salonu*sound_623920.wav
+dojechałem do salonu*sound_577225.wav
+jadę do warsztatu*sound_312602.wav
+dojechałem do warsztatu*sound_387563.wav
+podaj mi kawę i potwierdź*sound_483893.wav
+odbierz kawę i potwierdź*sound_250035.wav

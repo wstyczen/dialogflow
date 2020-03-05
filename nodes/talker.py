@@ -6,28 +6,84 @@ import rospy
 import actionlib
 from std_msgs.msg import String, Bool
 import tiago_msgs.msg
+import random
 
 import time
 import tempfile
 
-#from sound_play.msg import SoundRequest
-#from sound_play.libsoundplay import SoundClient
-
 from Levenshtein import distance
-
-#import pygame.mixer
 
 import copy
 import sys
 import os
+from os import path
 import codecs
+import shutil
 
 import pl_nouns.odmiana as ro
 
-
-
 import pyaudio
 import wave
+
+def strip_inter(string):
+    return string.replace(".", "").replace(",","")
+
+class SentencesContainer:
+    def __init__(self, path):
+        self.__sentences_map = {}
+        self.__path = path
+        self.__read()
+
+    def __read(self):
+        try:
+            with open(self.__path + '/data.txt', 'r') as f:
+                lines = f.readlines()
+        except:
+            lines = []
+
+        for line in lines:
+            fields = line.split('*')
+            if len(fields) != 2:
+                raise Exception(u'Wrong format of line "{}"'.format(line))
+            ns = fields[0].decode('utf8')
+            sound_fname = fields[1].decode('utf-8')
+            self.__sentences_map[ns] = sound_fname
+            print ns, sound_fname
+
+    def __normalizeSentence(self, sentence):
+        return strip_inter(sentence).replace(u'\n', u' ').replace(u'\t', u' ').replace(u'*', u' ').strip().lower()
+
+    def getSentence(self, sentence):
+        assert isinstance(sentence, unicode)
+        ns = self.__normalizeSentence(sentence)
+        if not ns in self.__sentences_map:
+            return None
+        return self.__path + '/' + self.__sentences_map[ns]
+
+    def addSentence(self, sentence, sound_fname):
+        assert isinstance(sentence, unicode)
+        ns = self.__normalizeSentence(sentence)
+        if ns in self.__sentences_map:
+            raise Exception(u'Sentence "{}" is already in the container'.format(ns))
+
+        assert isinstance(ns, unicode)
+
+        # Copy the sound file
+        # Create unique name for the file
+        while True:
+            sound_fname_copy = u'sound_{}.wav'.format(random.randint(0,1000000))
+            if not path.exists(self.__path + '/' + sound_fname_copy):
+                break
+        shutil.copyfile(sound_fname, self.__path + '/' + sound_fname_copy)
+
+        with open(self.__path + '/data.txt', 'a+') as f:
+            #print ns
+            #print  sound_fname_copy
+            text = u'{}*{}'.format(ns, sound_fname_copy)
+            #print text
+            f.write(text.encode('utf8')+'\n')
+
+        self.__sentences_map[ns] = sound_fname_copy
 
 def play_sound(fname, start_pos):
     try:
@@ -59,13 +115,14 @@ def play_sound(fname, start_pos):
 
 # Action server for speaking text sentences
 class SaySentenceActionServer(object):
-    def __init__(self, name, playback_queue, odm, sentence_dict, agent_name, cred_file):
+    def __init__(self, name, playback_queue, odm, sentence_dict, agent_name, cred_file, sentences_container):
         self._action_name = name
         self._playback_queue = playback_queue
         self._odm = odm
         self._sentence_dict = sentence_dict
         self._agent_name = agent_name
         self._cred_file = cred_file
+        self.__sentences_container = sentences_container
         self._as = actionlib.SimpleActionServer(self._action_name, tiago_msgs.msg.SaySentenceAction, execute_cb=self.execute_cb, auto_start = False)
         self._as.start()
 
@@ -81,11 +138,19 @@ class SaySentenceActionServer(object):
         prefix_time_length = 2.1
         ss = strip_inter(sentence_uni).strip().upper()
         if sentence_uni.startswith( prefix ):
-            pub_txt_msg.publish( sentence_uni[len(prefix):] )
             print u'detected "' + prefix + u'"'
-            response, sound_fname = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl", self._cred_file)
-            sound_fname = (sound_fname[0], sound_fname[1], prefix_time_length)     # Cut out the prefix
-            print 'received response:', response.query_result
+            sentence_uni_no_prefix = sentence_uni[len(prefix):]
+            pub_txt_msg.publish( sentence_uni_no_prefix )
+            sound_fname = self.__sentences_container.getSentence(sentence_uni_no_prefix)
+            if sound_fname is None:
+                print u'using dialogflow for sentence "{}"'.format(sentence_uni)
+                response, sound_params = detect_intent_text(self._agent_name, "test_sess_012", ss.lower(), "pl", self._cred_file)
+                sound_params = (sound_params[0], sound_params[1], prefix_time_length)     # Cut out the prefix
+                self.__sentences_container.addSentence(sentence_uni_no_prefix, sound_params[0])
+                print 'received response:', response.query_result
+            else:
+                print u'using cached sentence "{}"'.format(sentence_uni)
+                sound_params = (sound_fname, 'keep', prefix_time_length)     # Cut out the prefix
             best_d = 0
             best_k = None
         else:
@@ -100,13 +165,13 @@ class SaySentenceActionServer(object):
                 if d < best_d:
                     best_d = d
                     best_k = k
-            sound_fname = (self._sentence_dict[best_k], 'keep', 0.0)
+            sound_params = (self._sentence_dict[best_k], 'keep', 0.0)
 
         print u'Starting action for "' + sentence_uni + u'"'
         success = True
         if best_d < 5:
-            print "Wiem co powiedzieć!", ss, best_k, sound_fname
-            sound_id = self._playback_queue.addSound( sound_fname )
+            print "Wiem co powiedzieć!", ss, best_k, sound_params
+            sound_id = self._playback_queue.addSound( sound_params )
 
             while not self._playback_queue.finishedSoundId(sound_id) and not rospy.is_shutdown():
                 # check that preempt has not been requested by the client
@@ -315,27 +380,6 @@ class PlaybackQueue:
         pub_vad_enabled.publish(False)
         print 'playBlockingsound: BEGIN'
         print '  file:', fname
-        #soundhandle.playWave(fname, 1, blocking=True)
-
-        '''
-        SONG_END = pygame.USEREVENT + 1
-        pygame.mixer.music.set_endevent(SONG_END)
-        pygame.mixer.music.load(fname)
-        pygame.mixer.music.play(0)
-
-        timeout = time.time() + 15   # 15 seconds from now
-
-        finished = False
-        while not finished:
-            for event in pygame.event.get():
-                if event.type == SONG_END:
-                    print "the song ended!"
-                    finished = True
-            if time.time() > timeout:
-                print "timeout - assuming the sound play ended"
-                finished = True
-            time.sleep(0.1)
-        '''
 
         play_sound(fname, start_time)
         print 'playBlockingsound: END'
@@ -458,9 +502,6 @@ class Odmieniacz:
             result = result[0:l_brace_idx] + word_p + result[r_brace_idx+1:]
         return result
 
-def strip_inter(string):
-    return string.replace(".", "").replace(",","")
-
 def listener():
 
     # In ROS, nodes are uniquely named. If two nodes with the same
@@ -469,7 +510,6 @@ def listener():
     # name for our 'listener' node so that multiple listeners can
     # run simultaneously.
     rospy.init_node('talker', anonymous=True)
-    #pygame.init()
 
     odm = Odmieniacz()
     playback_queue = PlaybackQueue()
@@ -513,7 +553,9 @@ def listener():
 
     rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name, playback_queue, cred_file_incare_dialog))
 
-    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict, 'text-to-speech-qtruau', cred_file_text_to_speech)
+    data2_dir = data_dir + '/container'
+    sc = SentencesContainer(data2_dir)
+    say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict, 'text-to-speech-qtruau', cred_file_text_to_speech, sc)
 
     # spin() simply keeps python from exiting until this node is stopped
     while not rospy.is_shutdown():
@@ -521,4 +563,11 @@ def listener():
         rospy.sleep(0.1)
 
 if __name__ == '__main__':
+    #text = u'asdf**ńą'
+    #text2 = text.replace('\n', ' ').replace('\t', ' ').replace('*', ' ').strip().lower()
+    #text3 = text.replace(u'\n', u' ').replace(u'\t', u' ').replace(u'*', u' ').strip().lower()
+    #print u'{}*{}'.format(text, 'qwer')
+    #print u'{}*{}'.format(text3, 'qwer')
+    #print u'{}*{}'.format(text2, 'qwer')
+    #exit(0)
     listener()
