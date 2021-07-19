@@ -287,8 +287,11 @@ def detect_intent_text(project_id, session_id, text, language_code, cred_file):
     print('Session path: {}\n'.format(session))
 
     audio_config = dialogflow.types.InputAudioConfig(
-        audio_encoding=audio_encoding, language_code=language_code,
-        sample_rate_hertz=sample_rate_hertz)
+        audio_encoding=audio_encoding, 
+        language_code=language_code,
+        sample_rate_hertz=sample_rate_hertz
+    )
+    
     # Set the query parameters with sentiment analysis
     voice = dialogflow.types.VoiceSelectionParams(
         name = "pl-PL-Wavenet-B"

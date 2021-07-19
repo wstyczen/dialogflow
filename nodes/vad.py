@@ -507,7 +507,7 @@ def main():
    #             raise ValueError('either --keywords or --keyword_file_paths must be set')
 
    #         keywords = [x.strip() for x in args.keywords.split(',')]
-    keywords=['hey pico']       
+    keywords=['hey rico']       
     if all(x in KEYWORDS for x in keywords):
         keyword_file_paths = [KEYWORD_FILE_PATHS[x] for x in keywords]
     else:

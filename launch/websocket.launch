@@ -7,6 +7,5 @@
   </node>
 
   <node pkg="dialogflow" type="vad.py" name="vad" args="--keywords 'hey pico' --sensitivities 0.9 --input_audio_device 1" output="screen" />
-
-  <!--<node name="soundplay_node" pkg="sound_play" type="soundplay_node.py"/>-->
+  <node name="soundplay_node" pkg="sound_play" type="soundplay_node.py"/>
 </launch>
