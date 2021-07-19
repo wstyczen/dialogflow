@@ -196,12 +196,18 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
     Using the same `session_id` between requests allows continuation
     of the conversation."""
     import dialogflow_v2 as dialogflow
+    import json 
+
     print 'detect_intent_audio'
     session_client = dialogflow.SessionsClient.from_service_account_file(cred_file)
 
     # Note: hard coding audio_encoding and sample_rate_hertz for simplicity.
     audio_encoding = dialogflow.enums.AudioEncoding.AUDIO_ENCODING_LINEAR_16
     sample_rate_hertz = 16000
+    with open('../data/context.json', 'r') as context_file:
+        context = json.load(context_file)
+    speech_context = dialogflow.types.SpeechContext(phrases=context)
+
 
     session = session_client.session_path(project_id, session_id)
     print('Session path: {}\n'.format(session))
@@ -210,17 +216,24 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
         input_audio = audio_file.read()
 
     audio_config = dialogflow.types.InputAudioConfig(
-        audio_encoding=audio_encoding, language_code=language_code,
-        sample_rate_hertz=sample_rate_hertz)
+        audio_encoding=audio_encoding, 
+        language_code=language_code,
+        model="command_and_search",
+        sample_rate_hertz=sample_rate_hertz,
+        speech_contexts=speech_context
+    )
+
     # Set the query parameters with sentiment analysis
     voice = dialogflow.types.VoiceSelectionParams(
         name = "pl-PL-Wavenet-B"
     )
+
     synt = dialogflow.types.SynthesizeSpeechConfig(
         pitch = -10,
         speaking_rate = 0.8,
         voice=voice
     )
+
     output_audio_config = dialogflow.types.OutputAudioConfig(
         audio_encoding=audio_encoding,
         synthesize_speech_config=synt
@@ -229,7 +242,8 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
     query_input = dialogflow.types.QueryInput(audio_config=audio_config)
 
     response = session_client.detect_intent(
-        session=session, query_input=query_input,
+        session=session, 
+        query_input=query_input,
         input_audio=input_audio,
         output_audio_config=output_audio_config
     )
