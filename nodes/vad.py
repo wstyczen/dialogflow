@@ -36,11 +36,14 @@ import collections
 from array import array
 from struct import pack
 from scipy.signal import butter, lfilter, lfilter_zi
+from multiprocessing.queues import Queue
 
 has_ros = True
 try:
 	import rospy
+    import actionlib
 	from std_msgs.msg import String, Bool
+    from pardon_action_server.msg import TurnToHumanGoal
 except:
 	has_ros = False
 
@@ -63,18 +66,12 @@ DO_NORMALIZE = True
 # device id
 DEVICE_ID = 6
 
-
-
-
+#import porcupine
 sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/binding/python'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/resources/util/python'))
-
-#import porcupine
 from porcupine import Porcupine
 from util import *
 
-
-from multiprocessing.queues import Queue
 
 DATA_DIR=os.path.join(os.path.dirname(__file__), '../data')
 SAMPLE_RATE_REC=16000
@@ -165,6 +162,10 @@ class PorcupineDemo(Thread):
             print("Connecting to publisher")
             self.pub = rospy.Publisher('wav_send', String, queue_size=10)
 
+            print("Connecting to action server")
+            self.client = actionlib.SimpleActionClient("/pardon_action", TurnToHumanGoal)
+            self.client.wait_for_server()
+
             self.sub_activate_vad = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
 
             self.sub_vad_enabled = rospy.Subscriber('vad_enabled', Bool, self.__vad_enabled_callback)
@@ -199,16 +200,12 @@ class PorcupineDemo(Thread):
         output = output.tostring()
         return output
 
-        
-
     def audio_callback(self, in_data, frame_count, time_info, status):
         decoded_block = np.fromstring(in_data, 'Int16')
-#        decoded_block = decoded_block.repeat(2, axis=0)
         in_data = pack('<' + ('h' * len(decoded_block)), *decoded_block)
         filtered_block, self.zi = lfilter(self.b, self.a, decoded_block, zi=self.zi)
         filtered_block = filtered_block.astype(np.int16)
         chunk_to_analyze = pack('<' + ('h' * len(filtered_block)), *filtered_block)
-
 
         if self.play_name == '':
             self.recorded_frames.put({'orig': in_data, 'filt': chunk_to_analyze})
@@ -267,7 +264,7 @@ class PorcupineDemo(Thread):
             audio_stream = pa.open(
                 #rate=porcupine.sample_rate,
                 rate=SAMPLE_RATE_REC,
-                channels=1,
+                channels=2,
                 format=pyaudio.paInt16,
                 input=True,
                 output=True,
@@ -277,7 +274,6 @@ class PorcupineDemo(Thread):
                 stream_callback=self.audio_callback)
 
             # open stream based on the wave object which has been input.
-
             wav_data = wf.readframes(-1)
             wav2_data = wg.readframes(-1)
             self.sounds = {}
@@ -328,7 +324,6 @@ class PorcupineDemo(Thread):
 
     _AUDIO_DEVICE_INFO_KEYS = ['index', 'name', 'defaultSampleRate', 'maxInputChannels']
 
-
     def runvad(self):
         CHANNELS = 1
         RATE = SAMPLE_RATE_WORK
@@ -365,7 +360,6 @@ class PorcupineDemo(Thread):
         TimeUse = 0
         print("* recording: ")
 
-	
         cancelled = False
 
         num_unv = 0
@@ -458,55 +452,28 @@ class PorcupineDemo(Thread):
                 if has_ros:
                     self.pub.publish(fname)
 
-
-
-
     @classmethod
     def show_audio_devices_info(cls):
         """ Provides information regarding different audio devices available. """
 
         pa = pyaudio.PyAudio()
-
         for i in range(pa.get_device_count()):
             info = pa.get_device_info_by_index(i)
             print(', '.join("'%s': '%s'" % (k, str(info[k])) for k in cls._AUDIO_DEVICE_INFO_KEYS))
-
         pa.terminate()
-
 
 def main():
     parser = argparse.ArgumentParser()
-
-    parser.add_argument('--keywords', help='comma-separated list of default keywords (%s)' % ', '.join(KEYWORDS))
-
-    parser.add_argument('--keyword_file_paths', help='comma-separated absolute paths to keyword files')
-
-    parser.add_argument('--library_path', help="absolute path to Porcupine's dynamic library", default=LIBRARY_PATH)
-
-    parser.add_argument('--model_file_path', help='absolute path to model parameter file', default=MODEL_FILE_PATH)
-
-    parser.add_argument('--sensitivities', help='detection sensitivity [0, 1]', default=0.5)
-
+    parser.add_argument('--keywords',                 help='comma-separated list of default keywords (%s)' % ', '.join(KEYWORDS))
+    parser.add_argument('--keyword_file_paths',       help='comma-separated absolute paths to keyword files')
+    parser.add_argument('--library_path',             help="absolute path to Porcupine's dynamic library", default=LIBRARY_PATH)
+    parser.add_argument('--model_file_path',          help='absolute path to model parameter file', default=MODEL_FILE_PATH)
+    parser.add_argument('--sensitivities',            help='detection sensitivity [0, 1]', default=0.5)
     parser.add_argument('--input_audio_device_index', help='index of input audio device', type=int, default=None)
-
-    parser.add_argument(
-        '--output_path',
-        help='absolute path to where recorded audio will be stored. If not set, it will be bypassed.')
-
-    parser.add_argument('--show_audio_devices_info', action='store_true')
-
+    parser.add_argument('--output_path',              help='absolute path to where recorded audio will be stored. If not set, it will be bypassed.')
+    parser.add_argument('--show_audio_devices_info',  action='store_true')
     PorcupineDemo.show_audio_devices_info()
 
-   # args,unknown = parser.parse_args()
-
-   # if args.show_audio_devices_info:
-   #     PorcupineDemo.show_audio_devices_info()
-   # else:
-   #     if args.keyword_file_paths is None:
-   #         if args.keywords is None:
-   #             raise ValueError('either --keywords or --keyword_file_paths must be set')
-
-   #         keywords = [x.strip() for x in args.keywords.split(',')]
     keywords=['hey rico']       
     if all(x in KEYWORDS for x in keywords):
         keyword_file_paths = [KEYWORD_FILE_PATHS[x] for x in keywords]
@@ -516,13 +483,13 @@ def main():
     sensitivities = [0.99]
 
     PorcupineDemo(
-            library_path=LIBRARY_PATH,
-            model_file_path=MODEL_FILE_PATH,
-            keyword_file_paths=keyword_file_paths,
-            sensitivities=sensitivities,
-            output_path=None,
-            input_device_index=DEVICE_ID).run()
-
+        library_path=LIBRARY_PATH,
+        model_file_path=MODEL_FILE_PATH,
+        keyword_file_paths=keyword_file_paths,
+        sensitivities=sensitivities,
+        output_path=None,
+        input_device_index=DEVICE_ID
+    ).run()
 
 if __name__ == '__main__':
     main()
