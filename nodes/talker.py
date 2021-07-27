@@ -204,8 +204,10 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
     # Note: hard coding audio_encoding and sample_rate_hertz for simplicity.
     audio_encoding = dialogflow.enums.AudioEncoding.AUDIO_ENCODING_LINEAR_16
     sample_rate_hertz = 16000
-    with open('../data/context.json', 'r') as context_file:
+    data_dir = rospy.get_param('~data_dir')
+    with open(data_dir + '/context.json', 'r') as context_file:
         context = json.load(context_file)
+    print(context)
     speech_context = dialogflow.types.SpeechContext(phrases=context)
 
 
@@ -220,7 +222,7 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
         language_code=language_code,
         model="command_and_search",
         sample_rate_hertz=sample_rate_hertz,
-        speech_contexts=speech_context
+        speech_contexts=[speech_context]
     )
 
     # Set the query parameters with sentiment analysis

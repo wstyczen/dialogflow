@@ -40,10 +40,10 @@ from multiprocessing.queues import Queue
 
 has_ros = True
 try:
-	import rospy
+    import rospy
     import actionlib
-	from std_msgs.msg import String, Bool
-    from pardon_action_server.msg import TurnToHumanGoal
+    from std_msgs.msg import String, Bool
+    from pardon_action_server.msg import TurnToHumanAction, TurnToHumanGoal
 except:
 	has_ros = False
 
@@ -90,7 +90,7 @@ def record_to_file(path, data, sample_width, rate):
     # sample_width, data = record()
     data = pack('<' + ('h' * len(data)), *data)
     wf = wave.open(path, 'wb')
-    wf.setnchannels(1)
+    wf.setnchannels(2)
     wf.setsampwidth(sample_width)
     wf.setframerate(rate)
     wf.writeframes(data)
@@ -146,7 +146,7 @@ class PorcupineDemo(Thread):
         self._input_device_index = input_device_index
 
         self.play_name = ''
-        self.play_id = 0 
+        self.play_id = 0
 
         self.recorded_frames = Queue()
 
@@ -163,8 +163,9 @@ class PorcupineDemo(Thread):
             self.pub = rospy.Publisher('wav_send', String, queue_size=10)
 
             print("Connecting to action server")
-            self.client = actionlib.SimpleActionClient("/pardon_action", TurnToHumanGoal)
+            self.client = actionlib.SimpleActionClient("/pardon_action", TurnToHumanAction)
             self.client.wait_for_server()
+            print("connected")
 
             self.sub_activate_vad = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
 
@@ -202,6 +203,7 @@ class PorcupineDemo(Thread):
 
     def audio_callback(self, in_data, frame_count, time_info, status):
         decoded_block = np.fromstring(in_data, 'Int16')
+	decoded_block = decoded_block[0::2]
         in_data = pack('<' + ('h' * len(decoded_block)), *decoded_block)
         filtered_block, self.zi = lfilter(self.b, self.a, decoded_block, zi=self.zi)
         filtered_block = filtered_block.astype(np.int16)
@@ -325,7 +327,7 @@ class PorcupineDemo(Thread):
     _AUDIO_DEVICE_INFO_KEYS = ['index', 'name', 'defaultSampleRate', 'maxInputChannels']
 
     def runvad(self):
-        CHANNELS = 1
+        CHANNELS = 2 # zmieniona liczba kanalow
         RATE = SAMPLE_RATE_WORK
         CHUNK_DURATION_MS = 30       # supports 10, 20 and 30 (ms)
         PADDING_DURATION_MS = 1500   # 1 sec jugement
@@ -474,7 +476,7 @@ def main():
     parser.add_argument('--show_audio_devices_info',  action='store_true')
     PorcupineDemo.show_audio_devices_info()
 
-    keywords=['hey rico']       
+    keywords=['hey pico']
     if all(x in KEYWORDS for x in keywords):
         keyword_file_paths = [KEYWORD_FILE_PATHS[x] for x in keywords]
     else:
