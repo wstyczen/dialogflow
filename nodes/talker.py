@@ -6,6 +6,7 @@ import rospy
 import actionlib
 from std_msgs.msg import String, Bool
 import tiago_msgs.msg
+from pal_common_msgs.msg import DisableAction 
 import random
 
 import time
@@ -110,6 +111,14 @@ def play_sound(fname, start_pos):
         stream.close()
         py_audio.terminate()
         wave_file.close()
+
+        try:
+            client = actionlib.SimpleActionClient('/pal_head_manager/disable', DisableAction)
+            client.cancel_all_goals()
+        except:
+            print("oopssie")
+            pass
+
     except Exception as e:
         print e
 
