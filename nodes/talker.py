@@ -112,13 +112,6 @@ def play_sound(fname, start_pos):
         py_audio.terminate()
         wave_file.close()
 
-        try:
-            client = actionlib.SimpleActionClient('/pal_head_manager/disable', DisableAction)
-            client.cancel_all_goals()
-        except:
-            print("oopssie")
-            pass
-
     except Exception as e:
         print e
 
@@ -455,6 +448,12 @@ def callback_wav(data, agent_name, playback_queue, cred_file):
     rospy.loginfo("I recorded %s", data.data)
     response, sound_file = detect_intent_audio(agent_name, "test_sess_012", data.data, "pl", cred_file)
     pub_txt_voice_cmd_msg.publish(response.query_result.query_text)
+    try:
+        client = actionlib.SimpleActionClient('/pal_head_manager/disable', DisableAction)
+        client.cancel_all_goals()
+    except:
+        print("oopssie")
+        pass
     callback_common(response, sound_file, playback_queue)
 
 class Odmieniacz:
