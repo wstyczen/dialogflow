@@ -90,7 +90,7 @@ def record_to_file(path, data, sample_width, rate):
     # sample_width, data = record()
     data = pack('<' + ('h' * len(data)), *data)
     wf = wave.open(path, 'wb')
-    wf.setnchannels(2)
+    wf.setnchannels(1)
     wf.setsampwidth(sample_width)
     wf.setframerate(rate)
     wf.writeframes(data)
@@ -203,7 +203,7 @@ class PorcupineDemo(Thread):
 
     def audio_callback(self, in_data, frame_count, time_info, status):
         decoded_block = np.fromstring(in_data, 'Int16')
-	decoded_block = decoded_block[0::2]
+	#decoded_block = decoded_block[0::2]
         in_data = pack('<' + ('h' * len(decoded_block)), *decoded_block)
         filtered_block, self.zi = lfilter(self.b, self.a, decoded_block, zi=self.zi)
         filtered_block = filtered_block.astype(np.int16)
@@ -266,7 +266,7 @@ class PorcupineDemo(Thread):
             audio_stream = pa.open(
                 #rate=porcupine.sample_rate,
                 rate=SAMPLE_RATE_REC,
-                channels=2,
+                channels=1,
                 format=pyaudio.paInt16,
                 input=True,
                 output=True,
@@ -297,6 +297,11 @@ class PorcupineDemo(Thread):
                 if self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received ):
                     print('[%s] detected keyword' % str(datetime.now()))
                     #self.quickplay(pa, wav_data, wf)
+
+                    goal = TurnToHumanGoal()
+                    self.client.send_goal(goal)
+                    self.client.wait_for_result()
+
                     self.play_name ='on'
                     self.runvad()
                     self.play_name='off'

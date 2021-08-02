@@ -199,24 +199,25 @@ def convert_audio_to_text(audio_file_path, language_code):
 
     with open(audio_file_path, 'rb') as audio_file:
         input_audio = audio_file.read()
-    audio = speech.RecognitionAudio(content=input_audio)
+    audio = speech.types.RecognitionAudio(content=input_audio)
 
     data_dir = rospy.get_param('~data_dir')
     with open(data_dir + '/context.json', 'r') as context_file:
         context = json.load(context_file)
 
-    config = speech.RecognitionConfig(
+    config = speech.types.RecognitionConfig(
         language_code                           = language_code,
         model                                   = "command_and_search",
-        encoding                                = speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        encoding                                = speech.types.RecognitionConfig.AudioEncoding.LINEAR16,
         audio_channel_count                     = 2,
-        speech_context                          = [speech.SpeechContext(phrases=context)],
+        speech_contexts                         = [speech.types.SpeechContext(phrases=context)],
         enable_separate_recognition_per_channel = True
     )
 
     transcription = ""
     confidence = 0.0
     cloud_response = client.recognize(config=config, audio=audio)
+    print(cloud_response)
     try:
         for result in cloud_response.results:
             for alt in result.alternatives:
@@ -229,7 +230,7 @@ def convert_audio_to_text(audio_file_path, language_code):
 
 def detect_intent_audio(project_id, session_id, audio_file_path, language_code, cred_file):
     (transcript, confidence) = convert_audio_to_text(audio_file_path, language_code)
-    detect_intent_text(project_id, session_id, transcript, language_code, cred_file)
+    return detect_intent_text(project_id, session_id, transcript, language_code, cred_file)
 
 def detect_intent_from_audio(project_id, session_id, audio_file_path, language_code, cred_file):
     """Returns the result of detect intent with an audio file as input.
