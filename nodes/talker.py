@@ -8,6 +8,8 @@ from std_msgs.msg import String, Bool
 import tiago_msgs.msg
 from pal_common_msgs.msg import DisableAction 
 import random
+from google.cloud import speech
+import json
 
 import time
 import tempfile
@@ -192,7 +194,44 @@ class SaySentenceActionServer(object):
 
         print u'Ended action for "' + sentence_uni + u'"', success
 
+def convert_audio_to_text(audio_file_path, language_code):
+    client = speech.SpeechClient()
+
+    with open(audio_file_path, 'rb') as audio_file:
+        input_audio = audio_file.read()
+    audio = speech.RecognitionAudio(content=input_audio)
+
+    data_dir = rospy.get_param('~data_dir')
+    with open(data_dir + '/context.json', 'r') as context_file:
+        context = json.load(context_file)
+
+    config = speech.RecognitionConfig(
+        language_code                           = language_code,
+        model                                   = "command_and_search",
+        encoding                                = speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        audio_channel_count                     = 2,
+        speech_context                          = [speech.SpeechContext(phrases=context)],
+        enable_separate_recognition_per_channel = True
+    )
+
+    transcription = ""
+    confidence = 0.0
+    cloud_response = client.recognize(config=config, audio=audio)
+    try:
+        for result in cloud_response.results:
+            for alt in result.alternatives:
+                if confidence < alt.confidence:
+                    confidence = alt.confidence
+                    transcription = alt.transcript
+    except:
+        pass
+    return (transcription, confidence)
+
 def detect_intent_audio(project_id, session_id, audio_file_path, language_code, cred_file):
+    (transcript, confidence) = convert_audio_to_text(audio_file_path, language_code)
+    detect_intent_text(project_id, session_id, transcript, language_code, cred_file)
+
+def detect_intent_from_audio(project_id, session_id, audio_file_path, language_code, cred_file):
     """Returns the result of detect intent with an audio file as input.
 
     Using the same `session_id` between requests allows continuation
@@ -211,7 +250,6 @@ def detect_intent_audio(project_id, session_id, audio_file_path, language_code, 
         context = json.load(context_file)
     print(context)
     speech_context = dialogflow.types.SpeechContext(phrases=context)
-
 
     session = session_client.session_path(project_id, session_id)
     print('Session path: {}\n'.format(session))
@@ -338,15 +376,10 @@ def detect_intent_text(project_id, session_id, text, language_code, cred_file):
         
     return response, (fname, 'delete', 0.0)
 
-#detect_intent_audio("fiery-set-259318", "test_sess_01", sys.argv[1], "pl")
-
-
 pub_txt_msg = rospy.Publisher('txt_msg', String, queue_size=10)
 pub_txt_voice_cmd_msg = rospy.Publisher('txt_voice_cmd_msg', String, queue_size=10)
 pub_cmd = rospy.Publisher('rico_cmd', tiago_msgs.msg.Command, queue_size=10)
 pub_vad_enabled = rospy.Publisher('vad_enabled', Bool, queue_size=10)
-
-#soundhandle = SoundClient()
 
 class PlaybackQueue:
     def __init__(self):
@@ -530,12 +563,6 @@ class Odmieniacz:
         return result
 
 def listener():
-
-    # In ROS, nodes are uniquely named. If two nodes with the same
-    # name are launched, the previous one is kicked off. The
-    # anonymous=True flag means that rospy will choose a unique
-    # name for our 'listener' node so that multiple listeners can
-    # run simultaneously.
     rospy.init_node('talker', anonymous=True)
 
     odm = Odmieniacz()
@@ -549,24 +576,6 @@ def listener():
     for sent, fname in izip(codecs.open(os.path.join(data_dir, "labels.txt"), encoding="utf-8"), open(os.path.join(data_dir, "files.txt"))):
         ss = unicode(sent) 
         sentence_dict[strip_inter(ss).strip().upper()] = os.path.join(data_dir, fname.strip())
-    '''
-    rospy.sleep(1)
-    key0 = sentence_dict.keys()[0]
-    fname = sentence_dict[key0]
-    print 'fname', fname
-    play_sound(fname, 0.5)
-    print 'end'
-    #pygame.mixer.music.load(fname)
-    #pygame.mixer.music.play(0, 0.5)
-    rospy.sleep(2)
-    exit(0)
-    '''
-    #text = raw_input('.')
-    #response, sound_fname = detect_intent_text(agent_name, "test_sess_012", u'niekorzystne warunki pogodowe ' + text, "pl")
-    #sound_fname = (sound_fname[0], sound_fname[1], 0.6)
-    #play_sound(sound_fname[0], 0.0)
-    #print 'received response:', response.query_result
-    #exit(0)
 
     if not 'GOOGLE_CREDENTIALS_INCARE_DIALOG' in os.environ:
         raise Exception('Env variable "GOOGLE_CREDENTIALS_INCARE_DIALOG" is not set')
@@ -577,24 +586,15 @@ def listener():
     cred_file_text_to_speech = os.environ['GOOGLE_CREDENTIALS_TEXT_TO_SPEECH']
 
     rospy.Subscriber("txt_send", String, lambda x: callback(x, agent_name, playback_queue, cred_file_incare_dialog))
-
     rospy.Subscriber("wav_send", String, lambda x: callback_wav(x, agent_name, playback_queue, cred_file_incare_dialog))
 
     data2_dir = data_dir + '/container'
     sc = SentencesContainer(data2_dir)
     say_as = SaySentenceActionServer( 'rico_says', playback_queue, odm, sentence_dict, 'text-to-speech-qtruau', cred_file_text_to_speech, sc)
 
-    # spin() simply keeps python from exiting until this node is stopped
     while not rospy.is_shutdown():
         playback_queue.spin_once()
         rospy.sleep(0.1)
 
 if __name__ == '__main__':
-    #text = u'asdf**ńą'
-    #text2 = text.replace('\n', ' ').replace('\t', ' ').replace('*', ' ').strip().lower()
-    #text3 = text.replace(u'\n', u' ').replace(u'\t', u' ').replace(u'*', u' ').strip().lower()
-    #print u'{}*{}'.format(text, 'qwer')
-    #print u'{}*{}'.format(text3, 'qwer')
-    #print u'{}*{}'.format(text2, 'qwer')
-    #exit(0)
     listener()
