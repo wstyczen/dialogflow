@@ -187,7 +187,9 @@ class PorcupineDemo(Thread):
         return output
 
     def audio_callback(self, in_data, frame_count, time_info, status):
+        print("entering cb")
         decoded_block = np.fromstring(in_data, 'Int16')
+	print(len(decoded_block))
         channel_left  = decoded_block[0::2]
         channel_right = decoded_block[1::2]
 
@@ -213,6 +215,7 @@ class PorcupineDemo(Thread):
             })
         
         output = self.get_next_frame()
+        print("leaving cb")
         return output, pyaudio.paContinue
 
     def quickplay(self, pa, data, wf):
@@ -290,20 +293,23 @@ class PorcupineDemo(Thread):
             while True:
                 if has_ros and rospy.is_shutdown():
                     break
+		try:
+                    frame = self.recorded_frames.get(block=False)
+                    pcm = frame['orig_l']
+                    pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+                    result_l = porcupine.process(pcm)
 
-                frame = self.recorded_frames.get()
-                pcm = frame['orig_l']
-                pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-                result_l = porcupine.process(pcm)
+                    if self._output_path is not None:
+                        self._recorded_frames.append(pcm)
 
-                if self._output_path is not None:
-                    self._recorded_frames.append(pcm)
+                    pcm = frame['orig_r']
+                    pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+                    result_r = porcupine.process(pcm)
 
-                pcm = frame['orig_r']
-                pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-                result_r = porcupine.process(pcm)
-
-                result = max(result_l, result_r)
+                    result = max(result_l, result_r)
+                    print(result, result_l, result_r)
+                except:
+                    result = False
 
                 if self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received ):
                     print('[%s] detected keyword' % str(datetime.now()))
