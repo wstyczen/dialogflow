@@ -173,7 +173,7 @@ class PorcupineDemo(Thread):
 
     def get_next_frame(self):
         if self.play_name == '':
-            output = np.zeros(512, dtype=np.int16).tostring()
+            output = np.zeros(512*2, dtype=np.int16).tostring()
             self.play_id = 0
             return output
 
