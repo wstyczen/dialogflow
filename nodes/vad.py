@@ -32,7 +32,6 @@ import wave
 import time
 
 # packages for VAD
-import webrtcvad
 import collections
 from array import array
 from struct import pack
@@ -48,24 +47,21 @@ try:
 except:
 	has_ros = False
 
-
-THR_VOICED   = 5 # start recording after that many voiced frames
-THR_UNVOICED = 10 # stop recording after that many unvoiced/silence frames
-THR_TIME     = 5 # stop recording after that many seconds
-THR_POWER    = 100 # minimum volume (power) for voiced frames
-DO_NORMALIZE = True # do normalize the output wave
-DEVICE_ID    = 6 # device id
-
-#import porcupine
 sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/binding/python'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../pkgs/porcupine/resources/util/python'))
 from porcupine import Porcupine
 from util import *
 
 
-DATA_DIR=os.path.join(os.path.dirname(__file__), '../data')
-SAMPLE_RATE_REC=16000
-SAMPLE_RATE_WORK=16000
+THR_VOICED       = 5 # start recording after that many voiced frames
+THR_UNVOICED     = 10 # stop recording after that many unvoiced/silence frames
+THR_TIME         = 5 # stop recording after that many seconds
+THR_POWER        = 100 # minimum volume (power) for voiced frames
+DO_NORMALIZE     = True # do normalize the output wave
+DEVICE_ID        = 6 # device id
+DATA_DIR         = os.path.join(os.path.dirname(__file__), '../data')
+SAMPLE_RATE_REC  = 16000
+SAMPLE_RATE_WORK = 16000
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
@@ -286,21 +282,29 @@ class PorcupineDemo(Thread):
             # open stream based on the wave object which has been input.
             wav_data           = wf.readframes(-1)
             wav2_data          = wg.readframes(-1)
-            self.sounds        = {}
-            self.sounds['on']  = np.fromstring(wav_data, 'Int16')
-            self.sounds['off'] = np.fromstring(wav2_data, 'Int16')
+            self.sounds        = {
+                'on': np.fromstring(wav_data, 'Int16'),
+                'off': np.fromstring(wav2_data, 'Int16')
+            }
 
             while True:
                 if has_ros and rospy.is_shutdown():
                     break
 
-                pcm = self.recorded_frames.get()['orig']
+                frame = self.recorded_frames.get()
+                pcm = frame['orig_l']
                 pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+                result_l = porcupine.process(pcm)
 
                 if self._output_path is not None:
                     self._recorded_frames.append(pcm)
 
-                result = porcupine.process(pcm)
+                pcm = frame['orig_r']
+                pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
+                result_r = porcupine.process(pcm)
+
+                result = max(result_l, result_r)
+
                 if self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received ):
                     print('[%s] detected keyword' % str(datetime.now()))
 
