@@ -180,7 +180,7 @@ class PorcupineDemo(Thread):
         output = self.sounds[self.play_name][self.play_id * 512 : (self.play_id + 1) * 512]
         self.play_id = self.play_id + 1
         if len(output) < 512:
-            output = np.pad(output, (0, 512-len(output)), 'constant', constant_values=(0,0))
+            output = np.pad(output, (0, (512*2)-len(output)), 'constant', constant_values=(0,0))
             self.play_name = ''
 
         output = output.tostring()
@@ -189,7 +189,6 @@ class PorcupineDemo(Thread):
     def audio_callback(self, in_data, frame_count, time_info, status):
         print("entering cb")
         decoded_block = np.fromstring(in_data, 'Int16')
-	print(len(decoded_block))
         channel_left  = decoded_block[0::2]
         channel_right = decoded_block[1::2]
 
@@ -293,7 +292,7 @@ class PorcupineDemo(Thread):
             while True:
                 if has_ros and rospy.is_shutdown():
                     break
-		try:
+                try:
                     frame = self.recorded_frames.get(block=False)
                     pcm = frame['orig_l']
                     pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
@@ -393,12 +392,8 @@ class PorcupineDemo(Thread):
             if not self.__vad_enabled:
                 cancelled = True
                 break
-            try:
-                data = self.recorded_frames.get(block=False)
-            except:
-                print("No data to process")
-                continue
 
+            data = self.recorded_frames.get()
             if ignore > 0:
                 ignore = ignore - 1
                 continue
@@ -445,7 +440,6 @@ class PorcupineDemo(Thread):
 
             # start point detection
             if not triggered:
-                print("not triggered")
                 num_voiced_left = sum(ring_buffer_flags_left)
                 num_voiced_right = sum(ring_buffer_flags_right)
                 if num_voiced_left > THR_VOICED or num_voiced_right > THR_VOICED:
