@@ -179,7 +179,7 @@ class PorcupineDemo(Thread):
 
         output = self.sounds[self.play_name][self.play_id * 512 : (self.play_id + 1) * 512]
         self.play_id = self.play_id + 1
-        if len(output) < 512:
+        if len(output) < 512*2:
             output = np.pad(output, (0, (512*2)-len(output)), 'constant', constant_values=(0,0))
             self.play_name = ''
 
@@ -187,7 +187,6 @@ class PorcupineDemo(Thread):
         return output
 
     def audio_callback(self, in_data, frame_count, time_info, status):
-        print("entering cb")
         decoded_block = np.fromstring(in_data, 'Int16')
         channel_left  = decoded_block[0::2]
         channel_right = decoded_block[1::2]
@@ -214,7 +213,6 @@ class PorcupineDemo(Thread):
             })
         
         output = self.get_next_frame()
-        print("leaving cb")
         return output, pyaudio.paContinue
 
     def quickplay(self, pa, data, wf):
@@ -306,7 +304,6 @@ class PorcupineDemo(Thread):
                     result_r = porcupine.process(pcm)
 
                     result = max(result_l, result_r)
-                    print(result, result_l, result_r)
                 except:
                     result = False
 
