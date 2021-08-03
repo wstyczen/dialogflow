@@ -393,8 +393,12 @@ class PorcupineDemo(Thread):
             if not self.__vad_enabled:
                 cancelled = True
                 break
+            try:
+                data = self.recorded_frames.get(block=False)
+            except:
+                print("No data to process")
+                continue
 
-            data = self.recorded_frames.get()
             if ignore > 0:
                 ignore = ignore - 1
                 continue
@@ -441,6 +445,7 @@ class PorcupineDemo(Thread):
 
             # start point detection
             if not triggered:
+                print("not triggered")
                 num_voiced_left = sum(ring_buffer_flags_left)
                 num_voiced_right = sum(ring_buffer_flags_right)
                 if num_voiced_left > THR_VOICED or num_voiced_right > THR_VOICED:
