@@ -58,7 +58,7 @@ THR_UNVOICED     = 10 # stop recording after that many unvoiced/silence frames
 THR_TIME         = 5 # stop recording after that many seconds
 THR_POWER        = 100 # minimum volume (power) for voiced frames
 DO_NORMALIZE     = True # do normalize the output wave
-DEVICE_ID        = 6 # device id
+DEVICE_ID        = 13 #6 # device id
 DATA_DIR         = os.path.join(os.path.dirname(__file__), '../data')
 SAMPLE_RATE_REC  = 16000
 SAMPLE_RATE_WORK = 16000
@@ -77,10 +77,12 @@ def record_to_file(path, data, sample_width, rate):
     wf.setnchannels(2)
     wf.setsampwidth(sample_width)
     wf.setframerate(rate)
-    for left, right in itertools.zip(channel_left, channel_right):
-        left_frame = pack('<' + ('h' * len(left)), *left)
+    for left, right in itertools.izip(channel_left, channel_right):
+        # left_frame = pack('<' + ('h' * len(left)), *left)
+        left_frame = pack('<h', left)
         wf.writeframes(left_frame)
-        right_frame = pack('<' + ('h' * len(right)), *right)
+        # right_frame = pack('<' + ('h' * len(right)), *right)
+        right_frame = pack('<h', right)
         wf.writeframes(right_frame)
     wf.close()
 
@@ -139,7 +141,8 @@ class PorcupineDemo(Thread):
         
         self._output_path = output_path
         if self._output_path is not None:
-            self._recorded_frames = []
+            self._recorded_frames_left = []
+            self._recorded_frames_right = []
 
         if has_ros:
             print("Opening ros")
@@ -177,12 +180,12 @@ class PorcupineDemo(Thread):
             self.play_id = 0
             return output
 
-        output = self.sounds[self.play_name][self.play_id * 512 : (self.play_id + 1) * 512]
+        output = self.sounds[self.play_name][self.play_id * 512*2 : (self.play_id + 1) * 512 * 2]
         self.play_id = self.play_id + 1
         if len(output) < 512*2:
             output = np.pad(output, (0, (512*2)-len(output)), 'constant', constant_values=(0,0))
             self.play_name = ''
-
+	print(len(output))
         output = output.tostring()
         return output
 
@@ -194,11 +197,9 @@ class PorcupineDemo(Thread):
         def process_channel(block):
             # pack(format, v1, v2, ...) - returns bytes object containing v1,v2,... packed according to format
             in_data = pack('<' + ('h' * len(block)), *block)
-
             filtered_block, self.zi = lfilter(self.b, self.a, block, zi=self.zi)
             filtered_block = filtered_block.astype(np.int16)
             chunk_to_analyze = pack('<' + ('h' * len(filtered_block)), *filtered_block)
-
             return (in_data, chunk_to_analyze)
 
         (orig_left, filter_left)   = process_channel(channel_left)
@@ -241,7 +242,8 @@ class PorcupineDemo(Thread):
         for keyword_name, sensitivity in zip(keyword_names, self._sensitivities):
             print('- %s (sensitivity: %f)' % (keyword_name, sensitivity))
 
-        porcupine = None
+        porcupine_l = None
+        porcupine_r = None
         pa = None
         audio_stream = None
 
@@ -251,13 +253,19 @@ class PorcupineDemo(Thread):
 
         try:
             # initialize porcupine module
-            porcupine = Porcupine(
+            porcupine_l = Porcupine(
                 library_path       = self._library_path,
                 model_file_path    = self._model_file_path,
                 keyword_file_paths = self._keyword_file_paths,
                 sensitivities      = self._sensitivities
             )
-            print(porcupine.frame_length)
+            porcupine_r = Porcupine(
+                library_path       = self._library_path,
+                model_file_path    = self._model_file_path,
+                keyword_file_paths = self._keyword_file_paths,
+                sensitivities      = self._sensitivities
+            )
+            print(porcupine_l.frame_length, porcupine_r.frame_length)
 
             # configure filtering 
             FILT_LOW       = 400
@@ -273,9 +281,9 @@ class PorcupineDemo(Thread):
                 format              = pyaudio.paInt16,
                 input               = True,
                 output              = True,
-                frames_per_buffer   = porcupine.frame_length,
-                input_device_index  = self._input_device_index,
-                output_device_index = self._input_device_index,
+                frames_per_buffer   = porcupine_l.frame_length,
+                # input_device_index  = self._input_device_index,
+                # output_device_index = self._input_device_index,
                 stream_callback     = self.audio_callback
             )
 
@@ -292,16 +300,20 @@ class PorcupineDemo(Thread):
                     break
                 try:
                     frame = self.recorded_frames.get(block=False)
-                    pcm = frame['orig_l']
-                    pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-                    result_l = porcupine.process(pcm)
+                    pcm_l = frame['orig_l']
+
+                    pcm_l = struct.unpack_from("h" * porcupine_l.frame_length, pcm_l)
+                    result_l = porcupine_l.process(pcm_l)
 
                     if self._output_path is not None:
-                        self._recorded_frames.append(pcm)
+                        self._recorded_frames_left.append(pcm_l)
 
-                    pcm = frame['orig_r']
-                    pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-                    result_r = porcupine.process(pcm)
+                    pcm_r = frame['orig_r']
+                    pcm_r = struct.unpack_from("h" * porcupine_r.frame_length, pcm_r)
+                    result_r = porcupine_r.process(pcm_r)
+
+                    if self._output_path is not None:
+                        self._recorded_frames_right.append(pcm_r)
 
                     result = max(result_l, result_r)
                 except:
@@ -336,8 +348,11 @@ class PorcupineDemo(Thread):
             print('stopping ...')
 
         finally:
-            if porcupine is not None:
-                porcupine.delete()
+            if porcupine_l is not None:
+                porcupine_l.delete()
+
+            if porcupine_r is not None:
+                porcupine_r.delete()
 
             if audio_stream is not None:
                 audio_stream.close()
@@ -345,9 +360,10 @@ class PorcupineDemo(Thread):
             if pa is not None:
                 pa.terminate()
 
-            if self._output_path is not None and len(self._recorded_frames) > 0:
-                recorded_audio = np.concatenate(self._recorded_frames, axis=0).astype(np.int16)
-                soundfile.write(self._output_path, recorded_audio, samplerate=porcupine.sample_rate, subtype='PCM_16')
+            if self._output_path is not None and len(self._recorded_frames_left) > 0:
+                recorded_audio_left = np.concatenate(self._recorded_frames_left, axis=0).astype(np.int16)
+                recorded_audio_right = np.concatenate(self._recorded_frames_right, axis=0).astype(np.int16)
+                soundfile.write(self._output_path, np.vstack([recorded_audio_left, recorded_audio_right]).transpose(), samplerate=porcupine_l.sample_rate, subtype='PCM_16')
 
     def runvad(self):
         RATE                  = SAMPLE_RATE_WORK
@@ -460,7 +476,7 @@ class PorcupineDemo(Thread):
             print('* vad cancelled')
         else:
             print("* done recording")
-            if got_a_sentence:
+            if True:
                 got_a_sentence = False
 
                 # write to file
@@ -478,10 +494,15 @@ class PorcupineDemo(Thread):
 
                 now = datetime.now()
                 fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
+                print(fname)
                 record_to_file(fname, (raw_data_left, raw_data_right), 2, RATE)
                 print("Saved to " + fname)
                 if has_ros:
                     self.pub.publish(fname)
+            if got_a_sentence:
+                got_a_sentence = False
+            else:
+                print("Przepraszam, nie doslyszalem")
 
     @classmethod
     def show_audio_devices_info(cls):
@@ -511,14 +532,14 @@ def main():
     else:
         raise ValueError('selected keywords are not available by default. available keywords are: %s' % ', '.join(KEYWORDS))
     
-    sensitivities = [0.99]
+    sensitivities = [0.5]
 
     PorcupineDemo(
         library_path=LIBRARY_PATH,
         model_file_path=MODEL_FILE_PATH,
         keyword_file_paths=keyword_file_paths,
         sensitivities=sensitivities,
-        output_path=None,
+        output_path='/tmp/out.wav',
         input_device_index=DEVICE_ID
     ).run()
 
