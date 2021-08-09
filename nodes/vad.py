@@ -54,9 +54,9 @@ from util import *
 
 
 THR_VOICED       = 5 # start recording after that many voiced frames
-THR_UNVOICED     = 10 # stop recording after that many unvoiced/silence frames
+THR_UNVOICED     = 8 # stop recording after that many unvoiced/silence frames
 THR_TIME         = 5 # stop recording after that many seconds
-THR_POWER        = 100 # minimum volume (power) for voiced frames
+THR_POWER        = 120 # minimum volume (power) for voiced frames
 DO_NORMALIZE     = True # do normalize the output wave
 DEVICE_ID        = 13 #6 # device id
 DATA_DIR         = os.path.join(os.path.dirname(__file__), '../data')
@@ -174,7 +174,7 @@ class PorcupineDemo(Thread):
 
     def get_next_frame(self):
         if self.play_name == '':
-            output = np.zeros(512*2, dtype=np.int16).tostring()
+            output = np.zeros(512*2+2, dtype=np.int16).tostring()
             self.play_id = 0
             return output
 
@@ -241,7 +241,9 @@ class PorcupineDemo(Thread):
             print('- %s (sensitivity: %f)' % (keyword_name, sensitivity))
 
         porcupine_l = None
+        porcupine_l2 = None
         porcupine_r = None
+        porcupine_r2 = None
         pa = None
         audio_stream = None
 
@@ -309,32 +311,32 @@ class PorcupineDemo(Thread):
                     break
                 try:
                     frame = self.recorded_frames.get(block=False)
-
-                    pcm_l = frame['orig_l']
-                    pcm_l = struct.unpack_from("h" * porcupine_l.frame_length, pcm_l)
-                    result_l = porcupine_l.process(pcm_l)
-
-                    if self._output_path is not None:
-                        self._recorded_frames_left.append(pcm_l)
-
-                    pcm_r = frame['orig_r']
-                    pcm_r = struct.unpack_from("h" * porcupine_r.frame_length, pcm_r)
-                    result_r = porcupine_r.process(pcm_r)
-
-                    if self._output_path is not None:
-                        self._recorded_frames_right.append(pcm_r)
-                    
-                    pcm_l2 = frame['filt_l']
-                    pcm_l2 = struct.unpack_from("h" * porcupine_l2.frame_length, pcm_l2)
-                    result_l2 = porcupine_l2.process(pcm_l2)
-
-                    pcm_r2 = frame['filt_r']
-                    pcm_r2 = struct.unpack_from("h" * porcupine_r2.frame_length, pcm_r2)
-                    result_r2 = porcupine_r2.process(pcm_r2)
-
-                    result = max(result_l, result_l2, result_r, result_r2)
                 except:
-                    result = False
+                    continue
+
+                pcm_l = frame['orig_l']
+                pcm_l = struct.unpack_from("h" * porcupine_l.frame_length, pcm_l)
+                result_l = porcupine_l.process(pcm_l)
+
+                if self._output_path is not None:
+                    self._recorded_frames_left.append(pcm_l)
+
+                pcm_r = frame['orig_r']
+                pcm_r = struct.unpack_from("h" * porcupine_r.frame_length, pcm_r)
+                result_r = porcupine_r.process(pcm_r)
+
+                if self._output_path is not None:
+                    self._recorded_frames_right.append(pcm_r)
+                    
+                pcm_l2 = frame['filt_l']
+                pcm_l2 = struct.unpack_from("h" * porcupine_l2.frame_length, pcm_l2)
+                result_l2 = porcupine_l2.process(pcm_l2)
+
+                pcm_r2 = frame['filt_r']
+                pcm_r2 = struct.unpack_from("h" * porcupine_r2.frame_length, pcm_r2)
+                result_r2 = porcupine_r2.process(pcm_r2)
+
+                result = max(result_l, result_l2, result_r, result_r2)
 
                 if self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received ):
                     print('[%s] detected keyword' % str(datetime.now()))
@@ -370,6 +372,12 @@ class PorcupineDemo(Thread):
 
             if porcupine_r is not None:
                 porcupine_r.delete()
+
+            if porcupine_l2 is not None:
+                porcupine_l2.delete()
+
+            if porcupine_r2 is not None:
+                porcupine_r2.delete()
 
             if audio_stream is not None:
                 audio_stream.close()
@@ -423,7 +431,11 @@ class PorcupineDemo(Thread):
                 cancelled = True
                 break
 
-            data = self.recorded_frames.get()
+            try:
+                data = self.recorded_frames.get(block=False)
+            except:
+                continue
+
             if ignore > 0:
                 ignore = ignore - 1
                 continue
@@ -447,7 +459,7 @@ class PorcupineDemo(Thread):
                 power = np.mean(np.abs(block))
                 return power > THR_POWER
 
-            active = check_activity(decoded_block_left) or check_activity(decoded_block_right)
+            active = check_activity(decoded_block_left) and check_activity(decoded_block_right)
             if active:
                 num_unv = 0
             else:
@@ -556,7 +568,7 @@ def main():
         model_file_path=MODEL_FILE_PATH,
         keyword_file_paths=keyword_file_paths,
         sensitivities=sensitivities,
-        output_path='/tmp/out.wav',
+        # output_path='/tmp/out.wav',
         input_device_index=DEVICE_ID
     ).run()
 
