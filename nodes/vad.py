@@ -525,7 +525,7 @@ class PorcupineDemo(Thread):
             if got_a_sentence:
                 got_a_sentence = False
             else:
-                print("Przepraszam, nie doslyszalem")
+                pass
 
     @classmethod
     def show_audio_devices_info(cls):
