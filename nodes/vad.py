@@ -185,7 +185,6 @@ class PorcupineDemo(Thread):
         if len(output) < 512*2:
             output = np.pad(output, (0, (512*2)-len(output)), 'constant', constant_values=(0,0))
             self.play_name = ''
-	print(len(output))
         output = output.tostring()
         return output
 
@@ -502,7 +501,7 @@ class PorcupineDemo(Thread):
             if got_a_sentence:
                 got_a_sentence = False
             else:
-                print("Przepraszam, nie doslyszalem")
+                pass
 
     @classmethod
     def show_audio_devices_info(cls):

@@ -349,6 +349,8 @@ def detect_intent_text(project_id, session_id, text, language_code, cred_file):
         synthesize_speech_config=synt
     )
     
+    if text == "":
+        text = "xtryftugyihuoijljnkbhjvg"
     text_input = dialogflow.types.TextInput(text=text, language_code=language_code)
     query_input = dialogflow.types.QueryInput(text=text_input)
 
