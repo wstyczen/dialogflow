@@ -78,10 +78,8 @@ def record_to_file(path, data, sample_width, rate):
     wf.setsampwidth(sample_width)
     wf.setframerate(rate)
     for left, right in itertools.izip(channel_left, channel_right):
-        # left_frame = pack('<' + ('h' * len(left)), *left)
         left_frame = pack('<h', left)
         wf.writeframes(left_frame)
-        # right_frame = pack('<' + ('h' * len(right)), *right)
         right_frame = pack('<h', right)
         wf.writeframes(right_frame)
     wf.close()
@@ -185,7 +183,7 @@ class PorcupineDemo(Thread):
         if len(output) < 512*2:
             output = np.pad(output, (0, (512*2)-len(output)), 'constant', constant_values=(0,0))
             self.play_name = ''
-	print(len(output))
+
         output = output.tostring()
         return output
 
@@ -252,7 +250,7 @@ class PorcupineDemo(Thread):
         wg = wave.open(os.path.join(DATA_DIR, 'snd_off.wav'), 'rb')
 
         try:
-            # initialize porcupine module
+            # initialize porcupine module for each channel
             porcupine_l = Porcupine(
                 library_path       = self._library_path,
                 model_file_path    = self._model_file_path,
@@ -265,7 +263,18 @@ class PorcupineDemo(Thread):
                 keyword_file_paths = self._keyword_file_paths,
                 sensitivities      = self._sensitivities
             )
-            print(porcupine_l.frame_length, porcupine_r.frame_length)
+            porcupine_l2 = Porcupine(
+                library_path       = self._library_path,
+                model_file_path    = self._model_file_path,
+                keyword_file_paths = self._keyword_file_paths,
+                sensitivities      = self._sensitivities
+            )
+            porcupine_r2 = Porcupine(
+                library_path       = self._library_path,
+                model_file_path    = self._model_file_path,
+                keyword_file_paths = self._keyword_file_paths,
+                sensitivities      = self._sensitivities
+            )
 
             # configure filtering 
             FILT_LOW       = 400
@@ -300,8 +309,8 @@ class PorcupineDemo(Thread):
                     break
                 try:
                     frame = self.recorded_frames.get(block=False)
-                    pcm_l = frame['orig_l']
 
+                    pcm_l = frame['orig_l']
                     pcm_l = struct.unpack_from("h" * porcupine_l.frame_length, pcm_l)
                     result_l = porcupine_l.process(pcm_l)
 
@@ -314,8 +323,16 @@ class PorcupineDemo(Thread):
 
                     if self._output_path is not None:
                         self._recorded_frames_right.append(pcm_r)
+                    
+                    pcm_l2 = frame['filt_l']
+                    pcm_l2 = struct.unpack_from("h" * porcupine_l2.frame_length, pcm_l2)
+                    result_l2 = porcupine_l2.process(pcm_l2)
 
-                    result = max(result_l, result_r)
+                    pcm_r2 = frame['filt_r']
+                    pcm_r2 = struct.unpack_from("h" * porcupine_r2.frame_length, pcm_r2)
+                    result_r2 = porcupine_r2.process(pcm_r2)
+
+                    result = max(result_l, result_l2, result_r, result_r2)
                 except:
                     result = False
 
