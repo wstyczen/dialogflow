@@ -136,6 +136,7 @@ class PorcupineDemo(Thread):
         self.recorded_frames         = Queue()
         self.__activate_vad_received = False
         self.__vad_enabled           = True
+        self.run_once                = False
         
         self._output_path = output_path
         if self._output_path is not None:
@@ -156,6 +157,7 @@ class PorcupineDemo(Thread):
             self.sub_activate_vad = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
 
             self.sub_vad_enabled = rospy.Subscriber('vad_enabled', Bool, self.__vad_enabled_callback)
+            self.run_once_sub = rospy.Subscriber('/vad_run_once', Bool, self.__run_once_callback)
         else:
             self.pub = None
         print("Done")
@@ -171,6 +173,9 @@ class PorcupineDemo(Thread):
             self.__vad_enabled = False
         else:
             raise
+
+    def __run_once_callback(self, data):
+        self.run_once = True
 
     def get_next_frame(self):
         if self.play_name == '':
@@ -338,8 +343,9 @@ class PorcupineDemo(Thread):
 
                 result = max(result_l, result_l2, result_r, result_r2)
 
-                if self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received ):
+                if (self.__vad_enabled and ( (num_keywords == 1 and result) or self.__activate_vad_received )) or self.run_once:
                     print('[%s] detected keyword' % str(datetime.now()))
+                    self.run_once = False
 
                     # turn into human direction
                     goal = TurnToHumanGoal()
