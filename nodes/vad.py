@@ -43,6 +43,7 @@ try:
     import rospy
     import actionlib
     from std_msgs.msg import String, Bool
+    from rospkg import RosPack
     from pardon_action_server.msg import TurnToHumanAction, TurnToHumanGoal
 except:
     has_ros = False
@@ -76,10 +77,20 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     return b, a
 
 
-def record_to_file(path, data, sample_width, rate):
-    "Records from the microphone and outputs the resulting data to 'path'"
+def record_to_file(data, sample_width, rate):
+    "Records from the microphone and outputs the resulting data to a file."
+    "Returns the path of the file."
+
+    # Record the files within the dialogflow package in recordings/
+    recordings_dir = "%s/recordings/" % RosPack().get_path("dialogflow")
+    if not os.path.exists(recordings_dir):
+        os.makedirs(recordings_dir)
+
+    file_name = datetime.now().strftime("%m-%d-%Y-%H-%M-%S") + ".wav"
+    file_path = recordings_dir + file_name
+
     (channel_left, channel_right) = data
-    wf = wave.open(path, "wb")
+    wf = wave.open(file_path, "wb")
     wf.setnchannels(2)
     wf.setsampwidth(sample_width)
     wf.setframerate(rate)
@@ -89,6 +100,9 @@ def record_to_file(path, data, sample_width, rate):
         right_frame = pack("<h", right)
         wf.writeframes(right_frame)
     wf.close()
+
+    print("Saved to: " + file_path)
+    return file_path
 
 
 def normalize(snd_data):
@@ -599,13 +613,9 @@ class PorcupineDemo(Thread):
                     raw_data_left = normalize(raw_data_left)
                     raw_data_right = normalize(raw_data_right)
 
-                now = datetime.now()
-                fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
-                print(fname)
-                record_to_file(fname, (raw_data_left, raw_data_right), 2, RATE)
-                print("Saved to " + fname)
+                file_path = record_to_file((raw_data_left, raw_data_right), 2, RATE)
                 if has_ros:
-                    self.pub.publish(fname)
+                    self.pub.publish(file_path)
             if got_a_sentence:
                 got_a_sentence = False
             else:
