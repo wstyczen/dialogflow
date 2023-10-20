@@ -41,10 +41,14 @@ from multiprocessing.queues import Queue
 has_ros = True
 try:
     import rospy
-    import actionlib
     from std_msgs.msg import String, Bool
     from rospkg import RosPack
-    from pardon_action_server.msg import TurnToHumanAction, TurnToHumanGoal
+    from dialogflow_actions.msg import (
+        TurnToHumanGoal,
+    )
+    from dialogflow_actions.clients.turn_to_human_action_client import (
+        TurnToHumanActionClient,
+    )
 except:
     has_ros = False
 
@@ -172,12 +176,7 @@ class PorcupineDemo(Thread):
             print("Connecting to publisher")
             self.pub = rospy.Publisher("wav_send", String, queue_size=10)
 
-            print("Connecting to action server")
-            self.client = actionlib.SimpleActionClient(
-                "/pardon_action", TurnToHumanAction
-            )
-            self.client.wait_for_server()
-            print("connected")
+            self.turn_to_human_client = TurnToHumanActionClient()
 
             self.sub_activate_vad = rospy.Subscriber(
                 "/activate_vad", Bool, self.__activate_vad_callback
@@ -394,10 +393,9 @@ class PorcupineDemo(Thread):
                     print("[%s] detected keyword" % str(datetime.now()))
                     self.run_once = False
 
-                    # turn into human direction
-                    goal = TurnToHumanGoal()
-                    self.client.send_goal(goal)
-                    self.client.wait_for_result()
+                    # Orient towards the human.
+                    self.turn_to_human_client.send_goal(TurnToHumanGoal())
+                    self.turn_to_human_client.wait_for_result()
 
                     # record human voice
                     self.play_name = "on"
