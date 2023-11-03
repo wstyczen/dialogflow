@@ -49,6 +49,7 @@ try:
     from dialogflow_actions.clients.turn_to_human_action_client import (
         TurnToHumanActionClient,
     )
+    from sound_processing.enhance_audio import AudioEnhancement
 except:
     has_ros = False
 
@@ -393,9 +394,10 @@ class PorcupineDemo(Thread):
                     print("[%s] detected keyword" % str(datetime.now()))
                     self.run_once = False
 
-                    # Orient towards the human.
-                    self.turn_to_human_client.send_goal(TurnToHumanGoal())
-                    self.turn_to_human_client.wait_for_result()
+                    if has_ros:
+                        # Orient robot towards the human.
+                        self.turn_to_human_client.send_goal(TurnToHumanGoal())
+                        self.turn_to_human_client.wait_for_result()
 
                     # record human voice
                     self.play_name = "on"
@@ -613,6 +615,9 @@ class PorcupineDemo(Thread):
 
                 file_path = record_to_file((raw_data_left, raw_data_right), 2, RATE)
                 if has_ros:
+                    # Ensure the quality of the recorded audio is up to par.
+                    AudioEnhancement(file_path).enhance()
+
                     self.pub.publish(file_path)
             if got_a_sentence:
                 got_a_sentence = False
