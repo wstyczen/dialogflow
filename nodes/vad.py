@@ -47,7 +47,13 @@ try:
     import actionlib
     from std_msgs.msg import String, Bool
     from rospkg import RosPack
-    # from pardon_action_server.msg import TurnToHumanAction, TurnToHumanGoal
+    from dialogflow_actions.msg import (
+        TurnToHumanGoal,
+    )
+    from dialogflow_actions.clients.turn_to_human_action_client import (
+        TurnToHumanActionClient,
+    )
+    from sound_processing.enhance_audio import AudioEnhancement
 except:
 	has_ros = False
 
@@ -114,12 +120,12 @@ class PorcupineDemo(Thread):
         self._keyword_file_paths     = keyword_file_paths
         self._sensitivities          = sensitivities or 0.5
         # self._input_device_index     = input_device_index
-        # self.play_name               = ''
-        # self.play_id                 = 0
+        self.play_name               = ''
+        self.play_id                 = 0
         self.recorded_frames         = Queue()
-        # self.__activate_vad_received = False
+        self.__activate_vad_received = False
         self.__vad_enabled           = True
-        # self.run_once                = False
+        self.run_once                = False
         self._access_key              = access_key
 
         self._output_path = output_path
@@ -133,10 +139,7 @@ class PorcupineDemo(Thread):
             print("Connecting to publisher")
             self.pub = rospy.Publisher('wav_send', String, queue_size=10)
 
-            print("Connecting to action server")
-            # self.client = actionlib.SimpleActionClient("/pardon_action", TurnToHumanAction)
-            # self.client.wait_for_server()
-            print("connected")
+            self.turn_to_human_client = TurnToHumanActionClient()
 
             self.sub_activate_vad = rospy.Subscriber('/activate_vad', Bool, self.__activate_vad_callback)
 
@@ -189,6 +192,38 @@ class PorcupineDemo(Thread):
         (orig_right, filter_right) = self.process_channel(channel_right)
 
         return orig_left, filter_left, orig_right, filter_right
+
+
+    def get_next_frame(self):
+        if self.play_name == "":
+            output = np.zeros(512 * 2 + 2, dtype=np.int16).tostring()
+            self.play_id = 0
+            return output
+
+        output = self.sounds[self.play_name][
+            self.play_id * 512 * 2 : (self.play_id + 1) * 512 * 2
+        ]
+        self.play_id = self.play_id + 1
+        if len(output) < 512 * 2:
+            output = np.pad(
+                output, (0, (512 * 2) - len(output)), "constant", constant_values=(0, 0)
+            )
+            self.play_name = ""
+
+        output = output.tostring()
+        return output
+
+    def audio_stream_callback(self, in_data, frame_count, time_info, status):
+        orig_left, filter_left, orig_right, filter_right = self.get_filtered_audio(in_data)
+        self.recorded_frames.put({
+            'orig_l': orig_left,
+            'filt_l': filter_left,
+            'orig_r': orig_right,
+            'filt_r': filter_right
+        })
+
+        output = self.get_next_frame()
+        return output, pyaudio.paContinue
 
     def run(self):
         """
@@ -256,32 +291,23 @@ class PorcupineDemo(Thread):
                 channels=2,
                 rate=porcupine.sample_rate,
                 input=True,
-                # stream_callback= audio_callback,
+                stream_callback=self.audio_stream_callback,
                 frames_per_buffer=porcupine.frame_length)
 
+           # open stream based on the wave object which has been input.
+            wav_data = wf.readframes(-1)
+            wav2_data = wg.readframes(-1)
+            self.sounds = {
+                "on": np.fromstring(wav_data, "Int16"),
+                "off": np.fromstring(wav2_data, "Int16"),
+            }
 
             last_detection_time = datetime.datetime.now()
 
             while True:
-                # no callback
-
-                in_data = audio_stream.read(porcupine.frame_length)
-                # print(type(in_data))
-
-                orig_left, filter_left, orig_right, filter_right = self.get_filtered_audio(in_data)
-
-                self.recorded_frames.put({
-                    'orig_l': orig_left,
-                    'filt_l': filter_left,
-                    'orig_r': orig_right,
-                    'filt_r': filter_right
-                })
-
-
                 try:
                     frame = self.recorded_frames.get(block=False)
                 except:
-                    # print("no frame")
                     continue
 
                 #  callback
@@ -314,16 +340,18 @@ class PorcupineDemo(Thread):
                     if time_diff.seconds >= 1:
                         last_detection_time = detection_time
 
+                        print("Keyword detected.")
                         # turn into human direction
-                        # goal = TurnToHumanGoal()
-                        # self.client.send_goal(goal)
-                        # self.client.wait_for_result()
+                        if has_ros:
+                            # Orient robot towards the human.
+                            self.turn_to_human_client.send_goal(TurnToHumanGoal())
+                            # self.turn_to_human_client.wait_for_result()
 
                         # record human voice
-                        # self.play_name ='on'
-                        # self.runvad()
-                        # self.play_name='off'
-                        # self.__activate_vad_received = False
+                        self.play_name ='on'
+                        self.runvad()
+                        self.play_name='off'
+                        self.__activate_vad_received = False
 
 
         finally:
@@ -374,7 +402,7 @@ class PorcupineDemo(Thread):
             wf.setnchannels(2)
             wf.setsampwidth(sample_width)
             wf.setframerate(rate)
-            for left, right in itertools.izip(channel_left, channel_right):
+            for left, right in zip(channel_left, channel_right):
                 left_frame = pack('<h', left)
                 wf.writeframes(left_frame)
                 right_frame = pack('<h', right)
@@ -418,23 +446,16 @@ class PorcupineDemo(Thread):
         print("RUNVAD")
 
         while not got_a_sentence and TimeUse <= THR_TIME:
-            print(f"'ignore' value: {ignore}")
             if not self.__vad_enabled:
                 cancelled = True
                 break
 
-            # try:
-            print("trying to get frames")
-            data = self.recorded_frames.get(block=False)
-            print(data)
-
-            # except Exception as e:
-            #     print("some exception :PP")
-            #     exit(1)
-            #     continue
+            try:
+                data = self.recorded_frames.get(block=False)
+            except Exception as e:
+                continue
 
             if ignore > 0:
-                print("ignore")
                 ignore = ignore - 1
                 continue
 
@@ -464,7 +485,7 @@ class PorcupineDemo(Thread):
                 num_unv = num_unv + 1
 
             # display activity status
-            sys.stdout.write('O' if active else '-')
+            print('O' if active else '-', end='')
 
             # update ring buffer's start and end flags
             def update_ring_buffer(ring_buffer, ring_buffer_flags, ring_buffer_flags_end, ring_buffer_index, ring_buffer_index_end, active, chunk):
@@ -519,12 +540,15 @@ class PorcupineDemo(Thread):
                     raw_data_left  = normalize(raw_data_left)
                     raw_data_right = normalize(raw_data_right)
 
-                now = datetime.now()
+                now = datetime.datetime.now()
                 fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
                 print(fname)
                 record_to_file(fname, (raw_data_left, raw_data_right), 2, RATE)
+
                 print("Saved to " + fname)
                 if has_ros:
+                    # Ensure the quality of the recorded audio is up to par.
+                    AudioEnhancement(fname).enhance()
                     self.pub.publish(fname)
             if got_a_sentence:
                 got_a_sentence = False
