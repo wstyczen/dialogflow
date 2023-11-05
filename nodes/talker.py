@@ -53,7 +53,7 @@ class SentencesContainer:
             ns = fields[0].decode("utf8")
             sound_fname = fields[1].decode("utf-8").strip()
             self.__sentences_map[ns] = sound_fname
-            print(ns, sound_fname)
+            # print(ns, sound_fname)
 
     def __normalizeSentence(self, sentence):
         return (
@@ -644,13 +644,11 @@ def listener():
             data_dir, fname.strip()
         )
 
-    if not "GOOGLE_CREDENTIALS_INCARE_DIALOG" in os.environ:
-        raise Exception('Env variable "GOOGLE_CREDENTIALS_INCARE_DIALOG" is not set')
-    if not "GOOGLE_CREDENTIALS_TEXT_TO_SPEECH" in os.environ:
-        raise Exception('Env variable "GOOGLE_CREDENTIALS_TEXT_TO_SPEECH" is not set')
+    if not "GOOGLE_CONVERSATIONAL_DIALOGFLOW" in os.environ:
+        raise Exception('Env variable "GOOGLE_CONVERSATIONAL_DIALOGFLOW" is not set')
 
-    cred_file_incare_dialog = os.environ["GOOGLE_CREDENTIALS_INCARE_DIALOG"]
-    cred_file_text_to_speech = os.environ["GOOGLE_CREDENTIALS_TEXT_TO_SPEECH"]
+    cred_file_incare_dialog = os.environ["GOOGLE_CONVERSATIONAL_DIALOGFLOW"]
+    cred_file_text_to_speech = os.environ["GOOGLE_CONVERSATIONAL_DIALOGFLOW"]
 
     rospy.Subscriber(
         "txt_send",
