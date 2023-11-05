@@ -126,7 +126,8 @@ class PorcupineDemo(Thread):
         self.__activate_vad_received = False
         self.__vad_enabled           = True
         self.run_once                = False
-        self._access_key              = access_key
+        self._access_key             = access_key
+        self._prevent_recording      = False
 
         self._output_path = output_path
         if self._output_path is not None:
@@ -214,6 +215,8 @@ class PorcupineDemo(Thread):
         return output
 
     def audio_stream_callback(self, in_data, frame_count, time_info, status):
+        if self._prevent_recording:
+            return None, pyaudio.paContinue
         orig_left, filter_left, orig_right, filter_right = self.get_filtered_audio(in_data)
         self.recorded_frames.put({
             'orig_l': orig_left,
@@ -282,17 +285,16 @@ class PorcupineDemo(Thread):
             print("frame len", porcupine.frame_length)
 
             pa = pyaudio.PyAudio()
-            audio_stream = pa.open(
-                format=pyaudio.paInt16,
-                # no callback
-                # channels=1,
 
-                # callback
-                channels=2,
-                rate=porcupine.sample_rate,
-                input=True,
-                stream_callback=self.audio_stream_callback,
-                frames_per_buffer=porcupine.frame_length)
+            def open_audio_stream():
+                audio_stream = pa.open(
+                    format=pyaudio.paInt16,
+                    channels=2,
+                    rate=porcupine.sample_rate,
+                    input=True,
+                    frames_per_buffer=porcupine.frame_length)
+
+            open_audio_stream()
 
            # open stream based on the wave object which has been input.
             wav_data = wf.readframes(-1)
@@ -341,15 +343,20 @@ class PorcupineDemo(Thread):
                         last_detection_time = detection_time
 
                         print("Keyword detected.")
-                        # turn into human direction
-                        if has_ros:
-                            # Orient robot towards the human.
-                            self.turn_to_human_client.send_goal(TurnToHumanGoal())
-                            # self.turn_to_human_client.wait_for_result()
+
+                        # Orient robot towards the human.
+                        # if has_ros:
+                        #     self._prevent_recording = True
+                        #     self.turn_to_human_client.send_goal(TurnToHumanGoal())
+                        #     self.turn_to_human_client.wait_for_result()
+                        #     self._prevent_recording = False
+                        # self.recorded_frames = Queue()
 
                         # record human voice
                         self.play_name ='on'
+                        audio_stream.close()
                         self.runvad()
+                        open_audio_stream()
                         self.play_name='off'
                         self.__activate_vad_received = False
 
@@ -394,19 +401,21 @@ class PorcupineDemo(Thread):
         # initialize ring buffer
         triggered             = False
 
-
         def record_to_file(path, data, sample_width, rate):
             "Records from the microphone and outputs the resulting data to 'path'"
+            print("-- Enter ")
             (channel_left, channel_right) = data
             wf = wave.open(path, 'wb')
             wf.setnchannels(2)
             wf.setsampwidth(sample_width)
             wf.setframerate(rate)
+            print("Pre loop")
             for left, right in zip(channel_left, channel_right):
                 left_frame = pack('<h', left)
                 wf.writeframes(left_frame)
                 right_frame = pack('<h', right)
                 wf.writeframes(right_frame)
+            print("Post loop")
             wf.close()
 
         def normalize(snd_data):
