@@ -16,36 +16,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
 import os
 import sys
-
 import wave
 import pyaudio
-
 import struct
 import datetime
 import time
 from threading import Thread
-
 import pvporcupine
 from struct import pack
 from multiprocessing import Queue
 import numpy as np
 from scipy.signal import butter, lfilter, lfilter_zi
-
-# packages for VAD
 import collections
 from array import array
 from struct import pack
 from scipy.signal import butter, lfilter, lfilter_zi
 
-# from multiprocessing.queues import Queue
-import itertools
-
 has_ros = True
 try:
     import rospy
-    import actionlib
     from std_msgs.msg import String, Bool
     from rospkg import RosPack
     from dialogflow_actions.msg import (
@@ -90,35 +82,25 @@ class PorcupineDemo(Thread):
 
     def __init__(
         self,
-        # library_path,
-        # model_file_path,
         keyword_file_paths,
         sensitivities,
         access_key,
-        # input_device_index=None,
-        output_path="None",
+        output_path=None,
     ):
 
         """
         Constructor.
 
-        :param library_path: Absolute path to Porcupine's dynamic library.
-        :param model_file_path: Absolute path to the model parameter file.
         :param keyword_file_paths: List of absolute paths to keyword files.
         :param sensitivities: Sensitivity parameter for each wake word. For more information refer to
         'include/pv_porcupine.h'. It uses the
         same sensitivity value for all keywords.
-        :param input_device_index: Optional argument. If provided, audio is recorded from this input device. Otherwise,
-        the default audio input device is used.
         :param output_path: If provided recorded audio will be stored in this location at the end of the run.
         """
 
         super(PorcupineDemo, self).__init__()
-        # self._library_path           = library_path
-        # self._model_file_path        = model_file_path
         self._keyword_file_paths = keyword_file_paths
         self._sensitivities = sensitivities or 0.5
-        # self._input_device_index     = input_device_index
         self.play_name = ""
         self.play_id = 0
         self.recorded_frames = Queue()
@@ -296,12 +278,14 @@ class PorcupineDemo(Thread):
             pa = pyaudio.PyAudio()
 
             def open_audio_stream():
+                nonlocal audio_stream
                 audio_stream = pa.open(
                     format=pyaudio.paInt16,
                     channels=2,
                     rate=porcupine.sample_rate,
                     input=True,
                     frames_per_buffer=porcupine.frame_length,
+                    stream_callback=self.audio_stream_callback,
                 )
 
             open_audio_stream()
@@ -314,8 +298,7 @@ class PorcupineDemo(Thread):
                 "off": np.fromstring(wav2_data, "Int16"),
             }
 
-            last_detection_time = datetime.datetime.now()
-
+            last_keyword_detection_time = datetime.datetime.now()
             while True:
                 try:
                     frame = self.recorded_frames.get(block=False)
@@ -342,31 +325,29 @@ class PorcupineDemo(Thread):
                 # keyword_index = max(result_l, result_r)
                 keyword_index = max(result_l, result_l2, result_r, result_r2)
 
-                # will return True or -1
-                if keyword_index >= 0:
-                    detection_time = datetime.datetime.now()
-                    time_diff = detection_time - last_detection_time
+                def was_keyword_detected_within_timeout(time_out=1):
+                    time_diff = datetime.datetime.now() - last_keyword_detection_time
+                    return time_diff.seconds < time_out
 
-                    if time_diff.seconds >= 1:
-                        last_detection_time = detection_time
+                if (
+                    keyword_index >= 0 and not was_keyword_detected_within_timeout()
+                ) or self.__activate_vad_received:
+                    last_keyword_detection_time = datetime.datetime.now()
 
-                        print("Keyword detected.")
+                    print("Keyword detected.")
 
-                        # Orient robot towards the human.
-                        # if has_ros:
-                        #     self._prevent_recording = True
-                        #     self.turn_to_human_client.send_goal(TurnToHumanGoal())
-                        #     self.turn_to_human_client.wait_for_result()
-                        #     self._prevent_recording = False
-                        # self.recorded_frames = Queue()
+                    # Orient robot towards the human.
+                    # if has_ros:
+                    #     self._prevent_recording = True
+                    #     self.turn_to_human_client.send_goal(TurnToHumanGoal())
+                    #     self.turn_to_human_client.wait_for_result()
+                    #     self._prevent_recording = False
 
-                        # record human voice
-                        self.play_name = "on"
-                        audio_stream.close()
-                        self.runvad()
-                        open_audio_stream()
-                        self.play_name = "off"
-                        self.__activate_vad_received = False
+                    # Record voice command.
+                    self.play_name = "on"
+                    self.runvad()
+                    self.play_name = "off"
+                    self.__activate_vad_received = False
 
         finally:
             print("\nfinally")
@@ -409,19 +390,16 @@ class PorcupineDemo(Thread):
 
         def record_to_file(path, data, sample_width, rate):
             "Records from the microphone and outputs the resulting data to 'path'"
-            print("-- Enter ")
             (channel_left, channel_right) = data
             wf = wave.open(path, "wb")
             wf.setnchannels(2)
             wf.setsampwidth(sample_width)
             wf.setframerate(rate)
-            print("Pre loop")
             for left, right in zip(channel_left, channel_right):
                 left_frame = pack("<h", left)
                 wf.writeframes(left_frame)
                 right_frame = pack("<h", right)
                 wf.writeframes(right_frame)
-            print("Post loop")
             wf.close()
 
         def normalize(snd_data):
@@ -607,13 +585,9 @@ def main():
     sensitivities = [0.5]
 
     PorcupineDemo(
-        # library_path=LIBRARY_PATH,
-        # model_file_path=MODEL_FILE_PATH,
         keyword_file_paths=keyword_file_paths,
         access_key=access_key,
         sensitivities=sensitivities,
-        # output_path='/tmp/out.wav',
-        # input_device_index=DEVICE_ID
     ).run()
 
 
