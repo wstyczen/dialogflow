@@ -43,10 +43,10 @@ try:
     import rospy
     from std_msgs.msg import String, Bool
     from rospkg import RosPack
-    from dialogflow_actions.msg import (
+    from human_interactions.msg import (
         TurnToHumanGoal,
     )
-    from dialogflow_actions.clients.turn_to_human_action_client import (
+    from human_interactions.clients.turn_to_human_action_client import (
         TurnToHumanActionClient,
     )
     from sound_processing.enhance_audio import AudioEnhancement
