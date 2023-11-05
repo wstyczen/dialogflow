@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.6
 # encoding: utf8
 
 #
@@ -16,61 +16,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
-import argparse
-import itertools
 import os
-import struct
 import sys
-from datetime import datetime
+
+import wave
+import pyaudio
+
+import struct
+import datetime
+import time
 from threading import Thread
 
+import pvporcupine
+from struct import pack
+from multiprocessing import Queue
 import numpy as np
-import pyaudio
-import soundfile
-import wave
-import time
+from scipy.signal import butter, lfilter, lfilter_zi
 
 # packages for VAD
 import collections
 from array import array
 from struct import pack
 from scipy.signal import butter, lfilter, lfilter_zi
-from multiprocessing.queues import Queue
+
+# from multiprocessing.queues import Queue
+import itertools
 
 has_ros = True
 try:
     import rospy
+    import actionlib
     from std_msgs.msg import String, Bool
     from rospkg import RosPack
-    from human_interactions.msg import (
+    from dialogflow_actions.msg import (
         TurnToHumanGoal,
     )
-    from human_interactions.clients.turn_to_human_action_client import (
+    from dialogflow_actions.clients.turn_to_human_action_client import (
         TurnToHumanActionClient,
     )
     from sound_processing.enhance_audio import AudioEnhancement
 except:
     has_ros = False
 
-sys.path.append(
-    os.path.join(os.path.dirname(__file__), "../pkgs/porcupine/binding/python")
-)
-sys.path.append(
-    os.path.join(os.path.dirname(__file__), "../pkgs/porcupine/resources/util/python")
-)
-from porcupine import Porcupine
-from util import *
+porcupine = None
+pa = None
+audio_stream = None
+play_name = ""
 
 
-THR_VOICED = 5  # start recording after that many voiced frames
-THR_UNVOICED = 8  # stop recording after that many unvoiced/silence frames
-THR_TIME = 5  # stop recording after that many seconds
-THR_POWER = 120  # minimum volume (power) for voiced frames
-DO_NORMALIZE = True  # do normalize the output wave
-DEVICE_ID = 13  # 6 # device id
+FILT_LOW = 400
+FILT_HIGH = 4000
 DATA_DIR = os.path.join(os.path.dirname(__file__), "../data")
-SAMPLE_RATE_REC = 16000
+
 SAMPLE_RATE_WORK = 16000
 
 
@@ -80,44 +77,6 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     high = highcut / nyq
     b, a = butter(order, [low, high], btype="band")
     return b, a
-
-
-def record_to_file(data, sample_width, rate):
-    "Records from the microphone and outputs the resulting data to a file."
-    "Returns the path of the file."
-
-    # Record the files within the dialogflow package in recordings/
-    recordings_dir = "%s/recordings/" % RosPack().get_path("dialogflow")
-    if not os.path.exists(recordings_dir):
-        os.makedirs(recordings_dir)
-
-    file_name = datetime.now().strftime("%m-%d-%Y-%H-%M-%S") + ".wav"
-    file_path = recordings_dir + file_name
-
-    (channel_left, channel_right) = data
-    wf = wave.open(file_path, "wb")
-    wf.setnchannels(2)
-    wf.setsampwidth(sample_width)
-    wf.setframerate(rate)
-    for left, right in itertools.izip(channel_left, channel_right):
-        left_frame = pack("<h", left)
-        wf.writeframes(left_frame)
-        right_frame = pack("<h", right)
-        wf.writeframes(right_frame)
-    wf.close()
-
-    print("Saved to: " + file_path)
-    return file_path
-
-
-def normalize(snd_data):
-    "Average the volume out"
-    MAXIMUM = 32767  # 16384
-    times = float(MAXIMUM) / max(abs(i) for i in snd_data)
-    r = array("h")
-    for i in snd_data:
-        r.append(int(i * times))
-    return r
 
 
 class PorcupineDemo(Thread):
@@ -131,12 +90,13 @@ class PorcupineDemo(Thread):
 
     def __init__(
         self,
-        library_path,
-        model_file_path,
+        # library_path,
+        # model_file_path,
         keyword_file_paths,
         sensitivities,
-        input_device_index=None,
-        output_path=None,
+        access_key,
+        # input_device_index=None,
+        output_path="None",
     ):
 
         """
@@ -154,17 +114,19 @@ class PorcupineDemo(Thread):
         """
 
         super(PorcupineDemo, self).__init__()
-        self._library_path = library_path
-        self._model_file_path = model_file_path
+        # self._library_path           = library_path
+        # self._model_file_path        = model_file_path
         self._keyword_file_paths = keyword_file_paths
-        self._sensitivities = sensitivities
-        self._input_device_index = input_device_index
+        self._sensitivities = sensitivities or 0.5
+        # self._input_device_index     = input_device_index
         self.play_name = ""
         self.play_id = 0
         self.recorded_frames = Queue()
         self.__activate_vad_received = False
         self.__vad_enabled = True
         self.run_once = False
+        self._access_key = access_key
+        self._prevent_recording = False
 
         self._output_path = output_path
         if self._output_path is not None:
@@ -191,7 +153,7 @@ class PorcupineDemo(Thread):
             )
         else:
             self.pub = None
-        print("Done")
+        print("Initialization done.")
 
     def __activate_vad_callback(self, data):
         print("activate_vad_received")
@@ -207,6 +169,31 @@ class PorcupineDemo(Thread):
 
     def __run_once_callback(self, data):
         self.run_once = True
+
+    def process_channel(self, block):
+        # pack(format, v1, v2, ...) - returns bytes object containing v1,v2,... packed according to format
+        in_data = pack("<" + ("h" * len(block)), *block)
+
+        b, a = butter_bandpass(FILT_LOW, FILT_HIGH, SAMPLE_RATE_WORK, order=5)
+        zi_global = lfilter_zi(b, a)
+
+        filtered_block, zi = lfilter(b, a, block, zi=zi_global)
+        filtered_block = filtered_block.astype(np.int16)
+        chunk_to_analyze = pack("<" + ("h" * len(filtered_block)), *filtered_block)
+        return (in_data, chunk_to_analyze)
+
+    def get_filtered_audio(self, in_data):
+
+        decoded_block = np.fromstring(in_data, "Int16")
+        # co drugi od poczatku
+        channel_left = decoded_block[0::2]
+        # co drugi od drugiego elementu (od elem z indexem)
+        channel_right = decoded_block[1::2]
+
+        (orig_left, filter_left) = self.process_channel(channel_left)
+        (orig_right, filter_right) = self.process_channel(channel_right)
+
+        return orig_left, filter_left, orig_right, filter_right
 
     def get_next_frame(self):
         if self.play_name == "":
@@ -227,43 +214,23 @@ class PorcupineDemo(Thread):
         output = output.tostring()
         return output
 
-    def audio_callback(self, in_data, frame_count, time_info, status):
-        decoded_block = np.fromstring(in_data, "Int16")
-        channel_left = decoded_block[0::2]
-        channel_right = decoded_block[1::2]
-
-        def process_channel(block):
-            # pack(format, v1, v2, ...) - returns bytes object containing v1,v2,... packed according to format
-            in_data = pack("<" + ("h" * len(block)), *block)
-            filtered_block, self.zi = lfilter(self.b, self.a, block, zi=self.zi)
-            filtered_block = filtered_block.astype(np.int16)
-            chunk_to_analyze = pack("<" + ("h" * len(filtered_block)), *filtered_block)
-            return (in_data, chunk_to_analyze)
-
-        (orig_left, filter_left) = process_channel(channel_left)
-        (orig_right, filter_right) = process_channel(channel_right)
-
-        if self.play_name == "":
-            self.recorded_frames.put(
-                {
-                    "orig_l": orig_left,
-                    "filt_l": filter_left,
-                    "orig_r": orig_right,
-                    "filt_r": filter_right,
-                }
-            )
+    def audio_stream_callback(self, in_data, frame_count, time_info, status):
+        if self._prevent_recording:
+            return None, pyaudio.paContinue
+        orig_left, filter_left, orig_right, filter_right = self.get_filtered_audio(
+            in_data
+        )
+        self.recorded_frames.put(
+            {
+                "orig_l": orig_left,
+                "filt_l": filter_left,
+                "orig_r": orig_right,
+                "filt_r": filter_right,
+            }
+        )
 
         output = self.get_next_frame()
         return output, pyaudio.paContinue
-
-    def quickplay(self, pa, data, wf):
-        out_stream = pa.open(
-            format=pa.get_format_from_width(wf.getsampwidth()),
-            channels=wf.getnchannels(),
-            rate=wf.getframerate(),
-            output=True,
-        )
-        out_stream.write(data)
 
     def run(self):
         """
@@ -294,58 +261,50 @@ class PorcupineDemo(Thread):
         pa = None
         audio_stream = None
 
-        # open the file for reading.
+        # open the ON and OFF sound files for reading.
         wf = wave.open(os.path.join(DATA_DIR, "snd_on.wav"), "rb")
         wg = wave.open(os.path.join(DATA_DIR, "snd_off.wav"), "rb")
-
         try:
             # initialize porcupine module for each channel
-            porcupine_l = Porcupine(
-                library_path=self._library_path,
-                model_file_path=self._model_file_path,
-                keyword_file_paths=self._keyword_file_paths,
-                sensitivities=self._sensitivities,
+            porcupine_r = pvporcupine.create(
+                access_key=self._access_key,
+                keyword_paths=self._keyword_file_paths,
             )
-            porcupine_r = Porcupine(
-                library_path=self._library_path,
-                model_file_path=self._model_file_path,
-                keyword_file_paths=self._keyword_file_paths,
-                sensitivities=self._sensitivities,
-            )
-            porcupine_l2 = Porcupine(
-                library_path=self._library_path,
-                model_file_path=self._model_file_path,
-                keyword_file_paths=self._keyword_file_paths,
-                sensitivities=self._sensitivities,
-            )
-            porcupine_r2 = Porcupine(
-                library_path=self._library_path,
-                model_file_path=self._model_file_path,
-                keyword_file_paths=self._keyword_file_paths,
-                sensitivities=self._sensitivities,
+            porcupine_l = pvporcupine.create(
+                access_key=self._access_key,
+                keyword_paths=self._keyword_file_paths,
             )
 
-            # configure filtering
-            FILT_LOW = 400
-            FILT_HIGH = 4000
-            self.b, self.a = butter_bandpass(
-                FILT_LOW, FILT_HIGH, SAMPLE_RATE_WORK, order=5
+            porcupine_l = pvporcupine.create(
+                access_key=self._access_key, keyword_paths=self._keyword_file_paths
             )
-            self.zi = lfilter_zi(self.b, self.a)
+            porcupine_r = pvporcupine.create(
+                access_key=self._access_key, keyword_paths=self._keyword_file_paths
+            )
+            porcupine_l2 = pvporcupine.create(
+                access_key=self._access_key, keyword_paths=self._keyword_file_paths
+            )
+            porcupine_r2 = pvporcupine.create(
+                access_key=self._access_key, keyword_paths=self._keyword_file_paths
+            )
 
-            # configure audio stream
+            porcupine = porcupine_l
+
+            print("sample rate", porcupine.sample_rate)
+            print("frame len", porcupine.frame_length)
+
             pa = pyaudio.PyAudio()
-            audio_stream = pa.open(
-                rate=SAMPLE_RATE_REC,
-                channels=2,
-                format=pyaudio.paInt16,
-                input=True,
-                output=True,
-                frames_per_buffer=porcupine_l.frame_length,
-                # input_device_index  = self._input_device_index,
-                # output_device_index = self._input_device_index,
-                stream_callback=self.audio_callback,
-            )
+
+            def open_audio_stream():
+                audio_stream = pa.open(
+                    format=pyaudio.paInt16,
+                    channels=2,
+                    rate=porcupine.sample_rate,
+                    input=True,
+                    frames_per_buffer=porcupine.frame_length,
+                )
+
+            open_audio_stream()
 
             # open stream based on the wave object which has been input.
             wav_data = wf.readframes(-1)
@@ -355,27 +314,22 @@ class PorcupineDemo(Thread):
                 "off": np.fromstring(wav2_data, "Int16"),
             }
 
+            last_detection_time = datetime.datetime.now()
+
             while True:
-                if has_ros and rospy.is_shutdown():
-                    break
                 try:
                     frame = self.recorded_frames.get(block=False)
                 except:
                     continue
 
+                #  callback
                 pcm_l = frame["orig_l"]
-                pcm_l = struct.unpack_from("h" * porcupine_l.frame_length, pcm_l)
+                pcm_l = struct.unpack_from("h" * porcupine.frame_length, pcm_l)
                 result_l = porcupine_l.process(pcm_l)
 
-                if self._output_path is not None:
-                    self._recorded_frames_left.append(pcm_l)
-
                 pcm_r = frame["orig_r"]
-                pcm_r = struct.unpack_from("h" * porcupine_r.frame_length, pcm_r)
+                pcm_r = struct.unpack_from("h" * porcupine.frame_length, pcm_r)
                 result_r = porcupine_r.process(pcm_r)
-
-                if self._output_path is not None:
-                    self._recorded_frames_right.append(pcm_r)
 
                 pcm_l2 = frame["filt_l"]
                 pcm_l2 = struct.unpack_from("h" * porcupine_l2.frame_length, pcm_l2)
@@ -385,44 +339,38 @@ class PorcupineDemo(Thread):
                 pcm_r2 = struct.unpack_from("h" * porcupine_r2.frame_length, pcm_r2)
                 result_r2 = porcupine_r2.process(pcm_r2)
 
-                result = max(result_l, result_l2, result_r, result_r2)
+                # keyword_index = max(result_l, result_r)
+                keyword_index = max(result_l, result_l2, result_r, result_r2)
 
-                if (
-                    self.__vad_enabled
-                    and ((num_keywords == 1 and result) or self.__activate_vad_received)
-                ) or self.run_once:
-                    print("[%s] detected keyword" % str(datetime.now()))
-                    self.run_once = False
+                # will return True or -1
+                if keyword_index >= 0:
+                    detection_time = datetime.datetime.now()
+                    time_diff = detection_time - last_detection_time
 
-                    if has_ros:
+                    if time_diff.seconds >= 1:
+                        last_detection_time = detection_time
+
+                        print("Keyword detected.")
+
                         # Orient robot towards the human.
-                        self.turn_to_human_client.send_goal(TurnToHumanGoal())
-                        self.turn_to_human_client.wait_for_result()
+                        # if has_ros:
+                        #     self._prevent_recording = True
+                        #     self.turn_to_human_client.send_goal(TurnToHumanGoal())
+                        #     self.turn_to_human_client.wait_for_result()
+                        #     self._prevent_recording = False
+                        # self.recorded_frames = Queue()
 
-                    # record human voice
-                    self.play_name = "on"
-                    self.runvad()
-                    self.play_name = "off"
-                    self.__activate_vad_received = False
-
-                elif num_keywords > 1 and result >= 0:
-                    print(
-                        "[%s] detected %s"
-                        % (str(datetime.now()), keyword_names[result])
-                    )
-                    out_stream = pa.open(
-                        format=pa.get_format_from_width(wf.getsampwidth()),
-                        channels=wf.getnchannels(),
-                        rate=wf.getframerate(),
-                        output=True,
-                    )
-                    out_stream.write(wav_data)
-                    pa.close()
-
-        except KeyboardInterrupt:
-            print("stopping ...")
+                        # record human voice
+                        self.play_name = "on"
+                        audio_stream.close()
+                        self.runvad()
+                        open_audio_stream()
+                        self.play_name = "off"
+                        self.__activate_vad_received = False
 
         finally:
+            print("\nfinally")
+
             if porcupine_l is not None:
                 porcupine_l.delete()
 
@@ -441,21 +389,13 @@ class PorcupineDemo(Thread):
             if pa is not None:
                 pa.terminate()
 
-            if self._output_path is not None and len(self._recorded_frames_left) > 0:
-                recorded_audio_left = np.concatenate(
-                    self._recorded_frames_left, axis=0
-                ).astype(np.int16)
-                recorded_audio_right = np.concatenate(
-                    self._recorded_frames_right, axis=0
-                ).astype(np.int16)
-                soundfile.write(
-                    self._output_path,
-                    np.vstack([recorded_audio_left, recorded_audio_right]).transpose(),
-                    samplerate=porcupine_l.sample_rate,
-                    subtype="PCM_16",
-                )
-
     def runvad(self):
+        THR_VOICED = 5  # start recording after that many voiced frames
+        THR_UNVOICED = 8  # stop recording after that many unvoiced/silence frames
+        THR_TIME = 5  # stop recording after that many seconds
+        THR_POWER = 120  # minimum volume (power) for voiced frames
+        DO_NORMALIZE = True  # do normalize the output wave
+
         RATE = SAMPLE_RATE_WORK
         CHUNK_DURATION_MS = 30  # supports 10, 20 and 30 (ms)
         PADDING_DURATION_MS = 1500  # 1 sec jugement
@@ -466,6 +406,32 @@ class PorcupineDemo(Thread):
 
         # initialize ring buffer
         triggered = False
+
+        def record_to_file(path, data, sample_width, rate):
+            "Records from the microphone and outputs the resulting data to 'path'"
+            print("-- Enter ")
+            (channel_left, channel_right) = data
+            wf = wave.open(path, "wb")
+            wf.setnchannels(2)
+            wf.setsampwidth(sample_width)
+            wf.setframerate(rate)
+            print("Pre loop")
+            for left, right in zip(channel_left, channel_right):
+                left_frame = pack("<h", left)
+                wf.writeframes(left_frame)
+                right_frame = pack("<h", right)
+                wf.writeframes(right_frame)
+            print("Post loop")
+            wf.close()
+
+        def normalize(snd_data):
+            "Average the volume out"
+            MAXIMUM = 32767  # 16384
+            times = float(MAXIMUM) / max(abs(i) for i in snd_data)
+            r = array("h")
+            for i in snd_data:
+                r.append(int(i * times))
+            return r
 
         ring_buffer_left = collections.deque(maxlen=NUM_PADDING_CHUNKS)
         ring_buffer_flags_left = [0] * NUM_WINDOW_CHUNKS
@@ -491,6 +457,9 @@ class PorcupineDemo(Thread):
 
         num_unv = 0
         ignore = 5
+
+        print("RUNVAD")
+
         while not got_a_sentence and TimeUse <= THR_TIME:
             if not self.__vad_enabled:
                 cancelled = True
@@ -498,7 +467,7 @@ class PorcupineDemo(Thread):
 
             try:
                 data = self.recorded_frames.get(block=False)
-            except:
+            except Exception as e:
                 continue
 
             if ignore > 0:
@@ -533,7 +502,7 @@ class PorcupineDemo(Thread):
                 num_unv = num_unv + 1
 
             # display activity status
-            sys.stdout.write("O" if active else "-")
+            print("O" if active else "-", end="")
 
             # update ring buffer's start and end flags
             def update_ring_buffer(
@@ -613,86 +582,38 @@ class PorcupineDemo(Thread):
                     raw_data_left = normalize(raw_data_left)
                     raw_data_right = normalize(raw_data_right)
 
-                file_path = record_to_file((raw_data_left, raw_data_right), 2, RATE)
+                now = datetime.datetime.now()
+                fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
+                print(fname)
+                record_to_file(fname, (raw_data_left, raw_data_right), 2, RATE)
+
+                print("Saved to " + fname)
                 if has_ros:
                     # Ensure the quality of the recorded audio is up to par.
-                    AudioEnhancement(file_path).enhance()
-
-                    self.pub.publish(file_path)
+                    AudioEnhancement(fname).enhance()
+                    self.pub.publish(fname)
             if got_a_sentence:
                 got_a_sentence = False
             else:
                 pass
 
-    @classmethod
-    def show_audio_devices_info(cls):
-        """Provides information regarding different audio devices available."""
-
-        pa = pyaudio.PyAudio()
-        for i in range(pa.get_device_count()):
-            info = pa.get_device_info_by_index(i)
-            print(
-                ", ".join(
-                    "'%s': '%s'" % (k, str(info[k]))
-                    for k in cls._AUDIO_DEVICE_INFO_KEYS
-                )
-            )
-        pa.terminate()
-
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--keywords",
-        help="comma-separated list of default keywords (%s)" % ", ".join(KEYWORDS),
-    )
-    parser.add_argument(
-        "--keyword_file_paths", help="comma-separated absolute paths to keyword files"
-    )
-    parser.add_argument(
-        "--library_path",
-        help="absolute path to Porcupine's dynamic library",
-        default=LIBRARY_PATH,
-    )
-    parser.add_argument(
-        "--model_file_path",
-        help="absolute path to model parameter file",
-        default=MODEL_FILE_PATH,
-    )
-    parser.add_argument(
-        "--sensitivities", help="detection sensitivity [0, 1]", default=0.5
-    )
-    parser.add_argument(
-        "--input_audio_device_index",
-        help="index of input audio device",
-        type=int,
-        default=None,
-    )
-    parser.add_argument(
-        "--output_path",
-        help="absolute path to where recorded audio will be stored. If not set, it will be bypassed.",
-    )
-    parser.add_argument("--show_audio_devices_info", action="store_true")
-    PorcupineDemo.show_audio_devices_info()
-
-    keywords = ["hey pico"]
-    if all(x in KEYWORDS for x in keywords):
-        keyword_file_paths = [KEYWORD_FILE_PATHS[x] for x in keywords]
-    else:
-        raise ValueError(
-            "selected keywords are not available by default. available keywords are: %s"
-            % ", ".join(KEYWORDS)
-        )
-
+    access_key = "aDd541fQUB9+vb6KqcWV7kMBEvOkHQGV/bg7Z/1pbE1gcS0TmHzpYA=="
+    keyword_file_paths = [
+        "/home/wstyczen/tiago_public_ws/src/ros/dialogflow/Hey-Rico_en_linux_v2_1_0.ppn"
+    ]
+    # keyword_file_paths = os.path.join(RosPack().get_path('dialogflow'), 'Hey-Rico_en_linux_v2_1_0.ppn')
     sensitivities = [0.5]
 
     PorcupineDemo(
-        library_path=LIBRARY_PATH,
-        model_file_path=MODEL_FILE_PATH,
+        # library_path=LIBRARY_PATH,
+        # model_file_path=MODEL_FILE_PATH,
         keyword_file_paths=keyword_file_paths,
+        access_key=access_key,
         sensitivities=sensitivities,
         # output_path='/tmp/out.wav',
-        input_device_index=DEVICE_ID,
+        # input_device_index=DEVICE_ID
     ).run()
 
 
