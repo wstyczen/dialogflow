@@ -70,6 +70,11 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     b, a = butter(order, [low, high], btype="band")
     return b, a
 
+class AudioChannel:
+    LEFT = 0
+    RIGHT = 1
+    FILTERED_LEFT = 2
+    FILTERED_RIGHT = 3
 
 class PorcupineDemo(Thread):
     """
@@ -79,6 +84,8 @@ class PorcupineDemo(Thread):
     """
 
     _AUDIO_DEVICE_INFO_KEYS = ["index", "name", "defaultSampleRate", "maxInputChannels"]
+
+    AUDIO_CHANNELS = [AudioChannel.LEFT, AudioChannel.RIGHT, AudioChannel.FILTERED_LEFT, AudioChannel.FILTERED_RIGHT]
 
     def __init__(
         self,
@@ -108,7 +115,6 @@ class PorcupineDemo(Thread):
         self.__vad_enabled = True
         self.run_once = False
         self._access_key = access_key
-        self._prevent_recording = False
 
         self._output_path = output_path
         if self._output_path is not None:
@@ -152,31 +158,6 @@ class PorcupineDemo(Thread):
     def __run_once_callback(self, data):
         self.run_once = True
 
-    def process_channel(self, block):
-        # pack(format, v1, v2, ...) - returns bytes object containing v1,v2,... packed according to format
-        in_data = pack("<" + ("h" * len(block)), *block)
-
-        b, a = butter_bandpass(FILT_LOW, FILT_HIGH, SAMPLE_RATE_WORK, order=5)
-        zi_global = lfilter_zi(b, a)
-
-        filtered_block, zi = lfilter(b, a, block, zi=zi_global)
-        filtered_block = filtered_block.astype(np.int16)
-        chunk_to_analyze = pack("<" + ("h" * len(filtered_block)), *filtered_block)
-        return (in_data, chunk_to_analyze)
-
-    def get_filtered_audio(self, in_data):
-
-        decoded_block = np.fromstring(in_data, "Int16")
-        # co drugi od poczatku
-        channel_left = decoded_block[0::2]
-        # co drugi od drugiego elementu (od elem z indexem)
-        channel_right = decoded_block[1::2]
-
-        (orig_left, filter_left) = self.process_channel(channel_left)
-        (orig_right, filter_right) = self.process_channel(channel_right)
-
-        return orig_left, filter_left, orig_right, filter_right
-
     def get_next_frame(self):
         if self.play_name == "":
             output = np.zeros(512 * 2 + 2, dtype=np.int16).tostring()
@@ -197,49 +178,109 @@ class PorcupineDemo(Thread):
         return output
 
     def audio_stream_callback(self, in_data, frame_count, time_info, status):
-        if self._prevent_recording:
-            return None, pyaudio.paContinue
-        orig_left, filter_left, orig_right, filter_right = self.get_filtered_audio(
+        def get_audio_split_to_channels(in_data):
+            def process_channel(block):
+                """
+                Returns the original and the filtered audio packed into chunks.
+                """
+                in_data = pack("<" + ("h" * len(block)), *block)
+
+                b, a = butter_bandpass(FILT_LOW, FILT_HIGH, SAMPLE_RATE_WORK, order=5)
+                zi_global = lfilter_zi(b, a)
+
+                filtered_block, zi = lfilter(b, a, block, zi=zi_global)
+                filtered_block = filtered_block.astype(np.int16)
+                chunk_to_analyze = pack("<" + ("h" * len(filtered_block)), *filtered_block)
+                return (in_data, chunk_to_analyze)
+
+            decoded_block = np.fromstring(in_data, "Int16")
+
+            left_channel = decoded_block[0::2]
+            right_channel = decoded_block[1::2]
+
+            (left, filtered_left) = process_channel(left_channel)
+            (right, filtered_right) = process_channel(right_channel)
+
+            return left, filtered_left, right, filtered_right
+
+        left, filtered_left, right, filtered_right = get_audio_split_to_channels(
             in_data
         )
         self.recorded_frames.put(
             {
-                "orig_l": orig_left,
-                "filt_l": filter_left,
-                "orig_r": orig_right,
-                "filt_r": filter_right,
+                AudioChannel.LEFT: left,
+                AudioChannel.FILTERED_LEFT: filtered_left,
+                AudioChannel.RIGHT: right,
+                AudioChannel.FILTERED_RIGHT: filtered_right,
             }
         )
 
         output = self.get_next_frame()
         return output, pyaudio.paContinue
 
-    def run(self):
-        """
-        Creates an input audio stream, initializes wake word detection (Porcupine) object, and monitors the audio
-        stream for occurrences of the wake word(s). It prints the time of detection for each occurrence and index of
-        wake word.
-        """
-
+    def print_keywords(self):
         num_keywords = len(self._keyword_file_paths)
+        assert num_keywords > 0, "At least one keyword must be provided for detection."
+        assert num_keywords == len(
+            self._sensitivities
+        ), "Please provide a single sensitivity for each keyword."
 
-        keyword_names = list()
-        for x in self._keyword_file_paths:
-            keyword_names.append(
-                os.path.basename(x)
+        print("Listening for keywords:")
+        for i, keyword_file_path in enumerate(self._keyword_file_paths):
+            keyword_name = (
+                os.path.basename(keyword_file_path)
                 .replace(".ppn", "")
                 .replace("_compressed", "")
                 .split("_")[0]
             )
+            print(
+                "- '{}' (with sensitivity: {})".format(
+                    " ".join(keyword_name.split("-")), self._sensitivities[i]
+                )
+            )
 
-        print("listening for:")
-        for keyword_name, sensitivity in zip(keyword_names, self._sensitivities):
-            print("- %s (sensitivity: %f)" % (keyword_name, sensitivity))
+    def run(self):
+        """
+        Creates an input audio stream, initializes wake word detection (Porcupine) object, and monitors the audio
+        stream for occurrences of the wake word(s).
+        """
 
-        porcupine_l = None
-        porcupine_l2 = None
-        porcupine_r = None
-        porcupine_r2 = None
+        # Porcupine engines for keyword detection.
+        porcupine_engines = {}
+
+        def initialize_porcupine_engines():
+            """
+            Create wake-word porcupine engines for each channel - one that checks
+            original audio and one that checks filtered audio.
+            """
+            porcupine_engines.clear()
+            for channel in self.AUDIO_CHANNELS:
+                porcupine_engines[channel] = pvporcupine.create(
+                    access_key=self._access_key, keyword_paths=self._keyword_file_paths
+                )
+
+        def shutdown_porcupine_engines():
+            for engine in porcupine_engines.values():
+                engine.delete()
+
+        def was_wake_word_detected(frame):
+            """
+            Return whether any of the wake-words were detected in the given
+            frame.
+            """
+            # Porcupine's 'process' method checks the audio for wake words.
+            # It returns -1 if no wake-word was detected.
+            # If a wake-word was detected it returns its index.
+            results = []
+            for channel, engine in porcupine_engines.items():
+                pcm = frame[channel]
+                pcm = struct.unpack_from("h" * engine.frame_length, pcm)
+                results.append(engine.process(pcm))
+
+            return max(results) >= 0
+
+        self.print_keywords()
+
         pa = None
         audio_stream = None
 
@@ -247,33 +288,11 @@ class PorcupineDemo(Thread):
         wf = wave.open(os.path.join(DATA_DIR, "snd_on.wav"), "rb")
         wg = wave.open(os.path.join(DATA_DIR, "snd_off.wav"), "rb")
         try:
-            # initialize porcupine module for each channel
-            porcupine_r = pvporcupine.create(
-                access_key=self._access_key,
-                keyword_paths=self._keyword_file_paths,
-            )
-            porcupine_l = pvporcupine.create(
-                access_key=self._access_key,
-                keyword_paths=self._keyword_file_paths,
-            )
+            initialize_porcupine_engines()
 
-            porcupine_l = pvporcupine.create(
-                access_key=self._access_key, keyword_paths=self._keyword_file_paths
-            )
-            porcupine_r = pvporcupine.create(
-                access_key=self._access_key, keyword_paths=self._keyword_file_paths
-            )
-            porcupine_l2 = pvporcupine.create(
-                access_key=self._access_key, keyword_paths=self._keyword_file_paths
-            )
-            porcupine_r2 = pvporcupine.create(
-                access_key=self._access_key, keyword_paths=self._keyword_file_paths
-            )
-
-            porcupine = porcupine_l
-
-            print("sample rate", porcupine.sample_rate)
-            print("frame len", porcupine.frame_length)
+            porcupine = porcupine_engines[AudioChannel.LEFT]
+            print("Sample rate: %f." % porcupine.sample_rate)
+            print("Frame length: %f." % porcupine.frame_length)
 
             pa = pyaudio.PyAudio()
 
@@ -305,32 +324,12 @@ class PorcupineDemo(Thread):
                 except:
                     continue
 
-                #  callback
-                pcm_l = frame["orig_l"]
-                pcm_l = struct.unpack_from("h" * porcupine.frame_length, pcm_l)
-                result_l = porcupine_l.process(pcm_l)
-
-                pcm_r = frame["orig_r"]
-                pcm_r = struct.unpack_from("h" * porcupine.frame_length, pcm_r)
-                result_r = porcupine_r.process(pcm_r)
-
-                pcm_l2 = frame["filt_l"]
-                pcm_l2 = struct.unpack_from("h" * porcupine_l2.frame_length, pcm_l2)
-                result_l2 = porcupine_l2.process(pcm_l2)
-
-                pcm_r2 = frame["filt_r"]
-                pcm_r2 = struct.unpack_from("h" * porcupine_r2.frame_length, pcm_r2)
-                result_r2 = porcupine_r2.process(pcm_r2)
-
-                # keyword_index = max(result_l, result_r)
-                keyword_index = max(result_l, result_l2, result_r, result_r2)
-
                 def was_keyword_detected_within_timeout(time_out=1):
                     time_diff = datetime.datetime.now() - last_keyword_detection_time
                     return time_diff.seconds < time_out
 
                 if (
-                    keyword_index >= 0 and not was_keyword_detected_within_timeout()
+                    was_wake_word_detected(frame) and not was_keyword_detected_within_timeout()
                 ) or self.__activate_vad_received:
                     last_keyword_detection_time = datetime.datetime.now()
 
@@ -338,10 +337,8 @@ class PorcupineDemo(Thread):
 
                     # Orient robot towards the human.
                     # if has_ros:
-                    #     self._prevent_recording = True
                     #     self.turn_to_human_client.send_goal(TurnToHumanGoal())
                     #     self.turn_to_human_client.wait_for_result()
-                    #     self._prevent_recording = False
 
                     # Record voice command.
                     self.play_name = "on"
@@ -352,20 +349,10 @@ class PorcupineDemo(Thread):
         finally:
             print("\nfinally")
 
-            if porcupine_l is not None:
-                porcupine_l.delete()
-
-            if porcupine_r is not None:
-                porcupine_r.delete()
-
-            if porcupine_l2 is not None:
-                porcupine_l2.delete()
-
-            if porcupine_r2 is not None:
-                porcupine_r2.delete()
-
             if audio_stream is not None:
                 audio_stream.close()
+
+            shutdown_porcupine_engines()
 
             if pa is not None:
                 pa.terminate()
@@ -436,15 +423,13 @@ class PorcupineDemo(Thread):
         num_unv = 0
         ignore = 5
 
-        print("RUNVAD")
-
         while not got_a_sentence and TimeUse <= THR_TIME:
             if not self.__vad_enabled:
                 cancelled = True
                 break
 
             try:
-                data = self.recorded_frames.get(block=False)
+                frame = self.recorded_frames.get(block=False)
             except Exception as e:
                 continue
 
@@ -452,10 +437,10 @@ class PorcupineDemo(Thread):
                 ignore = ignore - 1
                 continue
 
-            chunk_left = data["orig_l"]
-            chunk_right = data["orig_r"]
-            filtered_left = data["filt_l"][0:960]
-            filtered_right = data["filt_r"][0:960]
+            chunk_left = frame[AudioChannel.LEFT]
+            chunk_right = frame[AudioChannel.RIGHT]
+            filtered_left = frame[AudioChannel.FILTERED_LEFT][0:960]
+            filtered_right = frame[AudioChannel.FILTERED_RIGHT][0:960]
 
             decoded_block_left = np.fromstring(filtered_left, "Int16")
             decoded_block_right = np.fromstring(filtered_right, "Int16")
