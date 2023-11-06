@@ -656,7 +656,7 @@ def listener():
         lambda x: callback(x, agent_name, playback_queue, cred_file_incare_dialog),
     )
     rospy.Subscriber(
-        "wav_send",
+        rospy.get_param("audio_file_topic"),
         String,
         lambda x: callback_wav(x, agent_name, playback_queue, cred_file_incare_dialog),
     )
