@@ -17,41 +17,37 @@
 # limitations under the License.
 #
 
-import os
-import wave
-import pyaudio
-import struct
-import datetime
-import time
-from threading import Thread
-import pvporcupine
-from struct import pack
-from multiprocessing import Queue
-import numpy as np
-from scipy.signal import butter, lfilter, lfilter_zi
 import collections
+import datetime
+import os
+import time
+import wave
 from array import array
-from struct import pack
+from multiprocessing import Queue
+from threading import Thread
+
+import numpy as np
+import pyaudio
+import pvporcupine
 from scipy.signal import butter, lfilter, lfilter_zi
+import struct
 
-try:
-    import rospy
-    from std_msgs.msg import String, Bool
-    from rospkg import RosPack
-except:
-    rospy.logerr(f"\033[91mFailed to access ROS modules.\nAborting.")
-    exit()
-
-
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    b, a = butter(order, [low, high], btype="band")
-    return b, a
+# ROS
+import rospy
+from rospkg import RosPack
+from std_msgs.msg import Bool, String
 
 
 class AudioChannel:
+    """
+    Enumeration for audio channel types used in VAD.
+
+    Attributes:
+        LEFT: Represents the left audio channel.
+        RIGHT: Represents the right audio channel.
+        FILTERED_LEFT: Represents filtered audio from left channel.
+        FILTERED_RIGHT: Represents filtered audio from right channel.
+    """
     LEFT = 0
     RIGHT = 1
     FILTERED_LEFT = 2
@@ -60,12 +56,31 @@ class AudioChannel:
 
 class VoiceActivationDetector(Thread):
     """
-    Voice Activation Detector (VAD) - utilizes Porcupine library for wake word
+    Voice Activation Detector (VAD) - utilizes Porcupine library for wake-word
     detection. Creates an input audio stream from microphone(s) and monitors
     it for occurences of the wake-word(s). Upon detection records a voice
     command and saves it to a file.
+
+
+    Attributes:
+        PACKAGE_PATH (str): The path to this ROS package.
+        KEYWORD_FILE_NAME (str): The name of the keyword file (.ppn).
+        FRAME_RATE (int): Frame rate of the audio (samples per second).
+        FRAME_LENGTH (int): Length of each audio frame.
+        AUDIO_CHANNELS (list[AudioChannel]): An enumeration of audio channel types.
+        _access_key (str): The access key for Porcupine.
+        _keyword_file_paths (list[str]): A list of file paths to Porcupine keyword model files.
+        _sensitivities (list[float]): A list of sensitivities corresponding to the keyword models.
+        _recorded_frames (Queue): A queue storing input audio frames.
+        _pyaudio_handle (pyaudio.PyAudio): An instance of PyAudio.
+        _audio_stream (pyaudio.Stream): The input audio stream.
+        _audio_file_publisher (rospy.Publisher): A ROS publisher for broadcasting recorded audio paths.
+        _start_recording_subscriber (rospy.Subscriber): A ROS subscriber allowing for triggering recording manually.
+        _recording_trigger_received (bool): Flag indicating if a trigger to start recording was received.
     """
 
+    PACKAGE_PATH = RosPack().get_path("dialogflow")
+    KEYWORD_FILE_NAME = "Hey-Rico_en_linux_v2_1_0.ppn"
     FRAME_RATE = 16000
     FRAME_LENGTH = 512
     AUDIO_CHANNELS = [
@@ -77,70 +92,102 @@ class VoiceActivationDetector(Thread):
 
     def __init__(
         self,
-        access_key,
-        keyword_file_paths,
-        sensitivities,
+        access_key="aDd541fQUB9+vb6KqcWV7kMBEvOkHQGV/bg7Z/1pbE1gcS0TmHzpYA==",
+        keyword_file_paths=[os.path.join(PACKAGE_PATH, KEYWORD_FILE_NAME)],
+        sensitivities=[0.5],
     ):
         """
-        Constructor.
+        Initializes a Voice Activation Detector (VAD) instance.
 
-        :param keyword_file_paths: List of absolute paths to keyword files.
-        :param sensitivities: Sensitivity parameter for each wake word. For more information refer to
-        'include/pv_porcupine.h'. It uses the
-        same sensitivity value for all keywords.
+        Args:
+            access_key (str): The access key for Porcupine.
+            keyword_file_paths (list[str]): A list of file paths to Porcupine keyword model files.
+            sensitivities (list[float]): A list of sensitivities corresponding to the keyword models.
         """
+        print("Initializing VAD.")
+
         super(VoiceActivationDetector, self).__init__()
         self._access_key = access_key
         self._keyword_file_paths = keyword_file_paths
-        self._sensitivities = sensitivities or 0.5
+        self._sensitivities = sensitivities
 
-        self.recorded_frames = Queue()
-        self._activate_vad_received = False
+        # Queue storing recorded audio frames.
+        self._recorded_frames = Queue()
 
         # Audio stream.
         self._pyaudio_handle = pyaudio.PyAudio()
         self._audio_stream = None
 
-        print("Connecting to publisher")
-        self.pub = rospy.Publisher(
+        # Publisher for file paths of recorded audio.
+        self._audio_file_publisher = rospy.Publisher(
             rospy.get_param("audio_file_topic"), String, queue_size=10
         )
 
-        # Used to skip wake-word detection step and go straight to recording the
-        # command.
+        # Used to skip wake-word detection step and go straight to recording.
         # Can be triggered from cmd by:
-        # rostopic pub /activate_vad std_msgs/Bool 1
-        self.sub_activate_vad = rospy.Subscriber(
-            "/activate_vad", Bool, self._activate_vad_callback
+        #   rostopic pub /start_recording std_msgs/Bool 1
+        self._start_recording_subscriber = rospy.Subscriber(
+            "/start_recording", Bool, self._start_recording_callback
         )
+        self._recording_trigger_received = False
 
-        print("Initialization done.")
+        print("VAD instance created.")
 
     def __del__(self):
+        """
+        Destructor, responsible for clean up.
+        """
         if self._pyaudio_handle is not None:
             self._pyaudio_handle.terminate()
         self.close_audio_stream()
 
-    def _activate_vad_callback(self, _):
-        print("Vad triggered remotely by topic.")
-        self._activate_vad_received = True
+    def _start_recording_callback(self, _):
+        """
+        Callback function for starting voice command recording manually.
+
+        Args:
+            _ (bool): Unused message data.
+        """
+        print("Recording triggered manually.")
+        self._recording_trigger_received = True
 
     def _audio_stream_callback(self, in_data, frame_count, time_info, status):
+        """
+        Callback function for processing input audio stream and storing the
+        result.
+
+        Args:
+            in_data (bytes): The incoming audio data.
+            frame_count (int): The number of frames in the data.
+            time_info (dict): Times related to input data.
+            status (int): Status of audio stream.
+
+        Returns:
+            output (str): String output.
+            status (pa.Continue, pa.Abort, etc): How to proceed.
+        """
         def get_audio_split_to_channels(in_data):
+            def butter_bandpass(lowcut, highcut, frame_rate, order=5):
+                nyq = 0.5 * frame_rate
+                low = lowcut / nyq
+                high = highcut / nyq
+                b, a = butter(order, [low, high], btype="band")
+                return b, a
+
             def process_channel(block, low_pass=400, high_pass=4000):
                 """
                 Returns the original and the filtered audio packed into chunks.
                 """
-                in_data = pack("<" + ("h" * len(block)), *block)
+                in_data = struct.pack("<" + ("h" * len(block)), *block)
 
                 b, a = butter_bandpass(
                     low_pass, high_pass, VoiceActivationDetector.FRAME_RATE, order=5
                 )
                 zi_global = lfilter_zi(b, a)
 
-                filtered_block, zi = lfilter(b, a, block, zi=zi_global)
+                filtered_block, _ = lfilter(b, a, block, zi=zi_global)
                 filtered_block = filtered_block.astype(np.int16)
-                chunk_to_analyze = pack(
+                chunk_to_analyze = struct.pack(
                     "<" + ("h" * len(filtered_block)), *filtered_block
                 )
                 return (in_data, chunk_to_analyze)
@@ -158,7 +205,7 @@ class VoiceActivationDetector(Thread):
         left, filtered_left, right, filtered_right = get_audio_split_to_channels(
             in_data
         )
-        self.recorded_frames.put(
+        self._recorded_frames.put(
             {
                 AudioChannel.LEFT: left,
                 AudioChannel.FILTERED_LEFT: filtered_left,
@@ -170,6 +217,9 @@ class VoiceActivationDetector(Thread):
         return "", pyaudio.paContinue
 
     def open_audio_stream(self):
+        """
+        Opens the input audio stream.
+        """
         self._audio_stream = self._pyaudio_handle.open(
             format=pyaudio.paInt16,
             channels=2,
@@ -180,13 +230,21 @@ class VoiceActivationDetector(Thread):
         )
 
     def close_audio_stream(self):
+        """
+        Closes the input audio stream.
+        """
         if self._audio_stream is not None:
             self._audio_stream.close()
 
     def run_wake_word_detection(self):
         """
-        Creates an input audio stream, initializes wake word detection (Porcupine) object, and monitors the audio
-        stream for occurrences of the wake word(s).
+        Monitors the input audio stream for occurences of the wake-word(s) using
+        Porcupine engines.
+
+        Can be triggered manually via topic.
+
+        Returns:
+            bool: Whether the wake-word was detected.
         """
         # Porcupine engines for keyword detection.
         porcupine_engines = {}
@@ -216,8 +274,8 @@ class VoiceActivationDetector(Thread):
 
         def initialize_porcupine_engines():
             """
-            Create wake-word porcupine engines for each channel - one that checks
-            original audio and one that checks filtered audio.
+            Create wake-word porcupine engines for each channel (left & right),
+            one that checks original audio and one that checks filtered audio.
             """
             porcupine_engines.clear()
             for channel in self.AUDIO_CHANNELS:
@@ -231,8 +289,7 @@ class VoiceActivationDetector(Thread):
 
         def was_keyword_detected(frame):
             """
-            Return whether any of the wake-words were detected in the given
-            frame.
+            Whether any of the wake-words were detected in the given frame.
             """
             # Porcupine's 'process' method checks the audio for wake words.
             # It returns -1 if no wake-word was detected.
@@ -258,18 +315,18 @@ class VoiceActivationDetector(Thread):
             # Keyword detection loop.
             while True:
                 try:
-                    frame = self.recorded_frames.get(block=False)
+                    frame = self._recorded_frames.get(block=False)
                 except:
                     continue
 
                 if (
                     was_keyword_detected(frame)
                     and not was_keyword_detected_within_timeout()
-                ) or self._activate_vad_received:
+                ) or self._recording_trigger_received:
                     print("Keyword detected.")
 
                     # Clear manual activation.
-                    self._activate_vad_received = False
+                    self._recording_trigger_received = False
 
                     # Shutdown the porcupine engines.
                     shutdown_porcupine_engines()
@@ -281,38 +338,91 @@ class VoiceActivationDetector(Thread):
 
     class VoicedFramesTracker:
         """
-        Keeps track of the number of voiced frames within the given window.
+        This class helps to keep track of the number of voiced and silent frames
+        within a window of a specified size using a ring buffer.
+
+        Attributes:
+            VOICED_POWER_THRESHOLD (int): The minimum power level for a frame to be considered 'voiced'.
+            _buffer (collection.deque[int]): Ring buffer of binary values indicating 'voiced' or 'silent' frames.
         """
 
         # Minimum power for the frame to be considered 'voiced'.
         VOICED_POWER_THRESHOLD = 120
 
         def __init__(self, buffer_size):
+            """
+            Initialize a VoicedFramesTracker.
+
+            Args:
+                buffer_size (int): The size of the window to monitor (and the size of the underlying buffer).
+            """
             # 1 - voiced, 0 - silent
             self._buffer = collections.deque([0] * buffer_size, maxlen=buffer_size)
 
         def update(self, is_voiced):
+            """
+            Update the buffer with a new value.
+
+            Args:
+                is_voiced (int): 1 if the frame was voiced, 0 if silent.
+            """
             self._buffer.append(is_voiced)
 
         def get_num_voiced(self):
+            """
+            Return the number of voiced frames within the monitored window.
+
+            Returns:
+                count (int): Number of voiced frames.
+            """
             return self._buffer.count(1)
 
         def get_num_silent(self):
+            """
+            Return the number of silent frames within the monitored window.
+
+            Returns:
+                count (int): Number of silent frames.
+            """
             return self._buffer.count(0)
 
         @classmethod
         def is_voiced(cls, frame):
+            """
+            Whether the frame is considered 'voiced'.
+
+            Args:
+                frame (np.array): Audio data.
+
+            Returns:
+                voiced (int): 1 if the frame is considered voiced, 0 if silent.
+            """
             power = np.mean(np.abs(frame))
             return int(power > cls.VOICED_POWER_THRESHOLD)
 
     def clear_recorded_frames(self):
+        """
+        Clear any queued audio frames.
+        """
         while True:
             try:
-                self.recorded_frames.get(block=False)
+                self._recorded_frames.get(block=False)
             except:
                 break
 
-    def record_voice_command(self):
+    def record_voice_command(self, normalize_audio=True):
+        """
+        Record a voice command after a trigger is detected.
+
+        This method monitors the audio frames for the start of the voice command
+        and stops recording after the specified number of silent frames
+        or the time limit has been reached.
+
+        Recorded audio is saved to a file.
+
+        Args:
+            normalize_audio (bool): Whether the recorded audio should be normalized before saving.
+        """
         # Consider command started after that many voiced frames.
         VOICED_FRAMES_THR = 10
         # After the command was started and that many silent frames passed, stop
@@ -320,8 +430,6 @@ class VoiceActivationDetector(Thread):
         SILENT_FRAMES_THR = 15
         # Time limit for recording in seconds.
         RECORDING_TIME_LIMIT = 5
-        # Whether the recorded audio should be normalized before saving.
-        DO_NORMALIZE = True
 
         # Window of frames observed constants.
         CHUNK_DURATION_MS = 30  # Supports 10, 20 and 30 (ms)
@@ -375,7 +483,7 @@ class VoiceActivationDetector(Thread):
         while not got_a_sentence and TimeUse <= RECORDING_TIME_LIMIT:
             # Get the active audio frame.
             try:
-                frame = self.recorded_frames.get(block=False)
+                frame = self._recorded_frames.get(block=False)
             except Exception:
                 # print("No frame available.")
                 continue
@@ -443,47 +551,65 @@ class VoiceActivationDetector(Thread):
             print("Time limit reached.")
         print("Recording ended.")
 
-        # Normalize data before saving.
-        def normalize(snd_data):
-            "Average the volume out."
+        def normalize(audio_data):
+            """Normalize the volume of the data."""
             MAXIMUM = 32767  # 16384
-            times = float(MAXIMUM) / max(abs(i) for i in snd_data)
+            times = float(MAXIMUM) / max(abs(i) for i in audio_data)
             r = array("h")
-            for i in snd_data:
+            for i in audio_data:
                 r.append(int(i * times))
             return r
 
-        if DO_NORMALIZE:
+        if normalize_audio:
             raw_data_left = normalize(raw_data_left)
             raw_data_right = normalize(raw_data_right)
 
         # Save audio to a file.
         now = datetime.datetime.now()
-        fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
+        file_path = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
 
         def record_to_file(path, data, sample_width, rate):
-            "Records from the microphone and outputs the resulting data to 'path'"
+            """
+            Output the audio data to a file.
+
+            Args:
+                path (str): The file path where the audio will be saved.
+                data (tuple): The audio data.
+                sample_width (int): The sample width in bytes.
+                rate (int): Audio's frame rate (in samples per second).
+            """
             (channel_left, channel_right) = data
             wf = wave.open(path, "wb")
             wf.setnchannels(2)
             wf.setsampwidth(sample_width)
             wf.setframerate(rate)
             for left, right in zip(channel_left, channel_right):
-                left_frame = pack("<h", left)
+                left_frame = struct.pack("<h", left)
                 wf.writeframes(left_frame)
-                right_frame = pack("<h", right)
+                right_frame = struct.pack("<h", right)
                 wf.writeframes(right_frame)
             wf.close()
 
         record_to_file(
-            fname,
+            file_path,
             (raw_data_left, raw_data_right),
             2,
             VoiceActivationDetector.FRAME_RATE,
         )
-        print("Saved to recording to '%s'." % fname)
+        print("Saved to recording to '%s'." % file_path)
 
-    def run(self):
+        self._audio_file_publisher.publish(file_path)
+
+    def run(self, run_once=False):
+        """
+        Run the Voice Activation Detector meant to record voice commands proceeded by specified wake-word(s).
+
+        When run, it will monitor the input audio for wake-word(s) occurences.
+        When detected, a voice command will be recorded and saved to a file for later use.
+
+        Args:
+            run_once (bool): Whether VAD should only be run once. If False (by default) it will be run continuously.
+        """
         self.open_audio_stream()
 
         while True:
@@ -494,14 +620,11 @@ class VoiceActivationDetector(Thread):
                 # Clear any queued frames.
                 self.clear_recorded_frames()
 
+            if run_once:
+                break
+
 
 if __name__ == "__main__":
     rospy.init_node("vad", anonymous=True)
 
-    package_path = RosPack().get_path("dialogflow")
-    HEY_RICO_KEYWORD_FILE_PATH = "Hey-Rico_en_linux_v2_1_0.ppn"
-    VoiceActivationDetector(
-        access_key="aDd541fQUB9+vb6KqcWV7kMBEvOkHQGV/bg7Z/1pbE1gcS0TmHzpYA==",
-        keyword_file_paths=[os.path.join(package_path, HEY_RICO_KEYWORD_FILE_PATH)],
-        sensitivities=[0.5],
-    ).run()
+    VoiceActivationDetector().run()
