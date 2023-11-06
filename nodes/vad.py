@@ -42,8 +42,6 @@ except:
     rospy.logerr(f"\033[91mFailed to access ROS modules.\nAborting.")
     exit()
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "../data")
-
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyq = 0.5 * fs
@@ -95,9 +93,6 @@ class VoiceActivationDetector(Thread):
         self._access_key = access_key
         self._keyword_file_paths = keyword_file_paths
         self._sensitivities = sensitivities or 0.5
-
-        self.play_name = ""
-        self.play_id = 0
 
         self.recorded_frames = Queue()
         self._activate_vad_received = False
@@ -160,28 +155,6 @@ class VoiceActivationDetector(Thread):
 
             return left, filtered_left, right, filtered_right
 
-        def get_next_frame():
-            if self.play_name == "":
-                output = np.zeros(512 * 2 + 2, dtype=np.int16).tostring()
-                self.play_id = 0
-                return output
-
-            output = self.sounds[self.play_name][
-                self.play_id * 512 * 2 : (self.play_id + 1) * 512 * 2
-            ]
-            self.play_id = self.play_id + 1
-            if len(output) < 512 * 2:
-                output = np.pad(
-                    output,
-                    (0, (512 * 2) - len(output)),
-                    "constant",
-                    constant_values=(0, 0),
-                )
-                self.play_name = ""
-
-            output = output.tostring()
-            return output
-
         left, filtered_left, right, filtered_right = get_audio_split_to_channels(
             in_data
         )
@@ -194,8 +167,7 @@ class VoiceActivationDetector(Thread):
             }
         )
 
-        output = get_next_frame()
-        return output, pyaudio.paContinue
+        return "", pyaudio.paContinue
 
     def open_audio_stream(self):
         self._audio_stream = self._pyaudio_handle.open(
@@ -218,9 +190,6 @@ class VoiceActivationDetector(Thread):
         """
         # Porcupine engines for keyword detection.
         porcupine_engines = {}
-        # Open the ON and OFF sound files for reading.
-        wf = wave.open(os.path.join(DATA_DIR, "snd_on.wav"), "rb")
-        wg = wave.open(os.path.join(DATA_DIR, "snd_off.wav"), "rb")
 
         def print_keywords():
             num_keywords = len(self._keyword_file_paths)
@@ -279,14 +248,6 @@ class VoiceActivationDetector(Thread):
         print_keywords()
         try:
             initialize_porcupine_engines()
-
-            # open stream based on the wave object which has been input.
-            wav_data = wf.readframes(-1)
-            wav2_data = wg.readframes(-1)
-            self.sounds = {
-                "on": np.fromstring(wav_data, "Int16"),
-                "off": np.fromstring(wav2_data, "Int16"),
-            }
 
             last_keyword_detection_time = datetime.datetime.now()
 
@@ -528,9 +489,7 @@ class VoiceActivationDetector(Thread):
         while True:
             if self.run_wake_word_detection():
                 # Record voice command.
-                self.play_name = "on"
                 self.record_voice_command()
-                self.play_name = "off"
 
                 # Clear any queued frames.
                 self.clear_recorded_frames()
