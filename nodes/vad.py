@@ -60,7 +60,7 @@ FILT_LOW = 400
 FILT_HIGH = 4000
 DATA_DIR = os.path.join(os.path.dirname(__file__), "../data")
 
-SAMPLE_RATE_WORK = 16000
+FRAME_RATE = 16000
 
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
@@ -70,11 +70,13 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     b, a = butter(order, [low, high], btype="band")
     return b, a
 
+
 class AudioChannel:
     LEFT = 0
     RIGHT = 1
     FILTERED_LEFT = 2
     FILTERED_RIGHT = 3
+
 
 class PorcupineDemo(Thread):
     """
@@ -85,7 +87,12 @@ class PorcupineDemo(Thread):
 
     _AUDIO_DEVICE_INFO_KEYS = ["index", "name", "defaultSampleRate", "maxInputChannels"]
 
-    AUDIO_CHANNELS = [AudioChannel.LEFT, AudioChannel.RIGHT, AudioChannel.FILTERED_LEFT, AudioChannel.FILTERED_RIGHT]
+    AUDIO_CHANNELS = [
+        AudioChannel.LEFT,
+        AudioChannel.RIGHT,
+        AudioChannel.FILTERED_LEFT,
+        AudioChannel.FILTERED_RIGHT,
+    ]
 
     def __init__(
         self,
@@ -112,7 +119,6 @@ class PorcupineDemo(Thread):
         self.play_id = 0
         self.recorded_frames = Queue()
         self.__activate_vad_received = False
-        self.__vad_enabled = True
         self.run_once = False
         self._access_key = access_key
 
@@ -132,10 +138,6 @@ class PorcupineDemo(Thread):
             self.sub_activate_vad = rospy.Subscriber(
                 "/activate_vad", Bool, self.__activate_vad_callback
             )
-
-            self.sub_vad_enabled = rospy.Subscriber(
-                "vad_enabled", Bool, self.__vad_enabled_callback
-            )
             self.run_once_sub = rospy.Subscriber(
                 "/vad_run_once", Bool, self.__run_once_callback
             )
@@ -146,14 +148,6 @@ class PorcupineDemo(Thread):
     def __activate_vad_callback(self, data):
         print("activate_vad_received")
         self.__activate_vad_received = True
-
-    def __vad_enabled_callback(self, data):
-        if data.data == True:
-            self.__vad_enabled = True
-        elif data.data == False:
-            self.__vad_enabled = False
-        else:
-            raise
 
     def __run_once_callback(self, data):
         self.run_once = True
@@ -185,12 +179,14 @@ class PorcupineDemo(Thread):
                 """
                 in_data = pack("<" + ("h" * len(block)), *block)
 
-                b, a = butter_bandpass(FILT_LOW, FILT_HIGH, SAMPLE_RATE_WORK, order=5)
+                b, a = butter_bandpass(FILT_LOW, FILT_HIGH, FRAME_RATE, order=5)
                 zi_global = lfilter_zi(b, a)
 
                 filtered_block, zi = lfilter(b, a, block, zi=zi_global)
                 filtered_block = filtered_block.astype(np.int16)
-                chunk_to_analyze = pack("<" + ("h" * len(filtered_block)), *filtered_block)
+                chunk_to_analyze = pack(
+                    "<" + ("h" * len(filtered_block)), *filtered_block
+                )
                 return (in_data, chunk_to_analyze)
 
             decoded_block = np.fromstring(in_data, "Int16")
@@ -318,18 +314,20 @@ class PorcupineDemo(Thread):
             }
 
             last_keyword_detection_time = datetime.datetime.now()
+
+            def was_keyword_detected_within_timeout(time_out=1):
+                time_diff = datetime.datetime.now() - last_keyword_detection_time
+                return time_diff.seconds < time_out
+
             while True:
                 try:
                     frame = self.recorded_frames.get(block=False)
                 except:
                     continue
 
-                def was_keyword_detected_within_timeout(time_out=1):
-                    time_diff = datetime.datetime.now() - last_keyword_detection_time
-                    return time_diff.seconds < time_out
-
                 if (
-                    was_wake_word_detected(frame) and not was_keyword_detected_within_timeout()
+                    was_wake_word_detected(frame)
+                    and not was_keyword_detected_within_timeout()
                 ) or self.__activate_vad_received:
                     last_keyword_detection_time = datetime.datetime.now()
 
@@ -342,13 +340,15 @@ class PorcupineDemo(Thread):
 
                     # Record voice command.
                     self.play_name = "on"
+
                     self.runvad()
+                    # Clear any queued frames.
+                    self.clear_recorded_frames()
+
                     self.play_name = "off"
                     self.__activate_vad_received = False
 
         finally:
-            print("\nfinally")
-
             if audio_stream is not None:
                 audio_stream.close()
 
@@ -357,23 +357,187 @@ class PorcupineDemo(Thread):
             if pa is not None:
                 pa.terminate()
 
-    def runvad(self):
-        THR_VOICED = 5  # start recording after that many voiced frames
-        THR_UNVOICED = 8  # stop recording after that many unvoiced/silence frames
-        THR_TIME = 5  # stop recording after that many seconds
-        THR_POWER = 120  # minimum volume (power) for voiced frames
-        DO_NORMALIZE = True  # do normalize the output wave
+    class VoicedFramesTracker:
+        """
+        Keeps track of the number of voiced frames within the given window.
+        """
 
-        RATE = SAMPLE_RATE_WORK
-        CHUNK_DURATION_MS = 30  # supports 10, 20 and 30 (ms)
-        PADDING_DURATION_MS = 1500  # 1 sec jugement
-        NUM_PADDING_CHUNKS = int(PADDING_DURATION_MS / CHUNK_DURATION_MS)
-        NUM_WINDOW_CHUNKS = int(400 / CHUNK_DURATION_MS)  # 400 ms / 30ms
-        NUM_WINDOW_CHUNKS_END = NUM_WINDOW_CHUNKS * 5
+        # Minimum power for the frame to be considered 'voiced'.
+        VOICED_POWER_THRESHOLD = 120
+
+        def __init__(self, buffer_size):
+            # 1 - voiced, 0 - silent
+            self._buffer = collections.deque([0] * buffer_size, maxlen=buffer_size)
+
+        def update(self, is_voiced):
+            self._buffer.append(is_voiced)
+
+        def get_num_voiced(self):
+            return self._buffer.count(1)
+
+        def get_num_silent(self):
+            return self._buffer.count(0)
+
+        @classmethod
+        def is_voiced(cls, frame):
+            power = np.mean(np.abs(frame))
+            return int(power > cls.VOICED_POWER_THRESHOLD)
+
+    def clear_recorded_frames(self):
+        while True:
+            try:
+                self.recorded_frames.get(block=False)
+            except:
+                break
+
+    def runvad(self):
+        # Consider command started after that many voiced frames.
+        VOICED_FRAMES_THR = 10
+        # After the command was started and that many silent frames passed, stop
+        # recording early.
+        SILENT_FRAMES_THR = 15
+        # Time limit for recording in seconds.
+        RECORDING_TIME_LIMIT = 5
+        # Whether the recorded audio should be normalized before saving.
+        DO_NORMALIZE = True
+
+        # Window of frames observed constants.
+        CHUNK_DURATION_MS = 30  # Supports 10, 20 and 30 (ms)
+        WINDOW_DURATION = 500  # ms
+        # Nr of frames, ie 500 ms / 30 ms ~= 16 frames
+        WINDOW_LENGTH = int(WINDOW_DURATION / CHUNK_DURATION_MS)
+        assert WINDOW_LENGTH >= max(
+            VOICED_FRAMES_THR, SILENT_FRAMES_THR
+        ), "The monitored window of frames can't be shorter then set thresholds."
+
+        # Whether enough voiced frames where 'voiced'.
+        got_voiced_frames = False
+        # Whether enough frames where 'voiced' and latest frames were silent.
         got_a_sentence = False
 
-        # initialize ring buffer
-        triggered = False
+        # Nr of frames to ignore at the start of command.
+        ignore = 5
+
+        # Initialize voiced frames trackers.
+        voiced_frames_tracker_left = self.VoicedFramesTracker(buffer_size=WINDOW_LENGTH)
+        voiced_frames_tracker_right = self.VoicedFramesTracker(
+            buffer_size=WINDOW_LENGTH
+        )
+
+        # Clear any queued frames.
+        self.clear_recorded_frames()
+
+        # Initialize recording.
+        raw_data_left = array("h")
+        raw_data_right = array("h")
+        StartTime = time.time()
+        TimeUse = 0
+
+        frames_str = ""
+
+        def print_frames(is_frame_voiced):
+            nonlocal frames_str
+            VOICED_FRAME_REPR = "#"
+            SILENT_FRAME_REPR = "-"
+
+            frames_str += VOICED_FRAME_REPR if is_frame_voiced else SILENT_FRAME_REPR
+            # Limit the length of displayed string.
+            LINE_LENGTH_LIMIT = 100
+            if len(frames_str) > LINE_LENGTH_LIMIT:
+                frames_str = frames_str[len(frames_str) - LINE_LENGTH_LIMIT :]
+
+            print(f"\r{frames_str}", end="\r")
+
+        print("Recording:")
+        # Record sound while the loop is active.
+        while not got_a_sentence and TimeUse <= RECORDING_TIME_LIMIT:
+            # Get the active audio frame.
+            try:
+                frame = self.recorded_frames.get(block=False)
+            except Exception:
+                # print("No frame available.")
+                continue
+
+            # Skip a few frames at the start, to make sure the 'wake-word' is
+            # not included in the recording.
+            if ignore > 0:
+                ignore -= 1
+                continue
+
+            # Process audio frame.
+            chunk_left = frame[AudioChannel.LEFT]
+            chunk_right = frame[AudioChannel.RIGHT]
+            filtered_left = frame[AudioChannel.FILTERED_LEFT][0:960]
+            filtered_right = frame[AudioChannel.FILTERED_RIGHT][0:960]
+
+            decoded_block_left = np.fromstring(filtered_left, "Int16")
+            decoded_block_right = np.fromstring(filtered_right, "Int16")
+
+            # Keep data for saving later.
+            raw_data_left.extend(array("h", chunk_left))
+            raw_data_right.extend(array("h", chunk_right))
+
+            # Check if frame is 'voiced'.
+            is_voiced_left = voiced_frames_tracker_left.is_voiced(decoded_block_left)
+            is_voiced_right = voiced_frames_tracker_right.is_voiced(decoded_block_right)
+            # Track the number of voiced frames.
+            voiced_frames_tracker_left.update(is_voiced_left)
+            voiced_frames_tracker_right.update(is_voiced_right)
+
+            voiced_frames_left = voiced_frames_tracker_left.get_num_voiced()
+            voiced_frames_right = voiced_frames_tracker_right.get_num_voiced()
+            silent_frames_left = voiced_frames_tracker_left.get_num_silent()
+            silent_frames_right = voiced_frames_tracker_left.get_num_silent()
+            # print(
+            #     f"Voiced: {np.mean([voiced_frames_left, voiced_frames_right])}, Silent: {np.mean([silent_frames_left, silent_frames_right])}",
+            #     end="\r",
+            # )
+
+            # Display whether the frame is voiced.
+            print_frames(is_voiced_left and is_voiced_right)
+
+            # Note the start of command (enough 'voiced' frames).
+            if (
+                voiced_frames_left > VOICED_FRAMES_THR
+                or voiced_frames_right > VOICED_FRAMES_THR
+            ):
+                got_voiced_frames = True
+            # If the command has started (got enough 'voiced' frames) and enough
+            # silent frames pass, end recording early.
+            if (
+                got_voiced_frames
+                and silent_frames_left > SILENT_FRAMES_THR
+                and silent_frames_right > SILENT_FRAMES_THR
+            ):
+                got_a_sentence = True
+
+            # Update time recorded.
+            TimeUse = time.time() - StartTime
+
+        print(frames_str)
+        if got_a_sentence:
+            print("Ended early because of silent frames.")
+        elif TimeUse > RECORDING_TIME_LIMIT:
+            print("Time limit reached.")
+        print("Recording ended.")
+
+        # Normalize data before saving.
+        def normalize(snd_data):
+            "Average the volume out."
+            MAXIMUM = 32767  # 16384
+            times = float(MAXIMUM) / max(abs(i) for i in snd_data)
+            r = array("h")
+            for i in snd_data:
+                r.append(int(i * times))
+            return r
+
+        if DO_NORMALIZE:
+            raw_data_left = normalize(raw_data_left)
+            raw_data_right = normalize(raw_data_right)
+
+        # Save audio to a file.
+        now = datetime.datetime.now()
+        fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
 
         def record_to_file(path, data, sample_width, rate):
             "Records from the microphone and outputs the resulting data to 'path'"
@@ -389,176 +553,13 @@ class PorcupineDemo(Thread):
                 wf.writeframes(right_frame)
             wf.close()
 
-        def normalize(snd_data):
-            "Average the volume out"
-            MAXIMUM = 32767  # 16384
-            times = float(MAXIMUM) / max(abs(i) for i in snd_data)
-            r = array("h")
-            for i in snd_data:
-                r.append(int(i * times))
-            return r
+        record_to_file(fname, (raw_data_left, raw_data_right), 2, FRAME_RATE)
+        print("Saved to recording to '%s'." % fname)
 
-        ring_buffer_left = collections.deque(maxlen=NUM_PADDING_CHUNKS)
-        ring_buffer_flags_left = [0] * NUM_WINDOW_CHUNKS
-        ring_buffer_index_left = 0
-        ring_buffer_flags_end_left = [1] * NUM_WINDOW_CHUNKS_END
-        ring_buffer_index_end_left = 0
-
-        ring_buffer_right = collections.deque(maxlen=NUM_PADDING_CHUNKS)
-        ring_buffer_flags_right = [0] * NUM_WINDOW_CHUNKS
-        ring_buffer_index_right = 0
-        ring_buffer_flags_end_right = [1] * NUM_WINDOW_CHUNKS_END
-        ring_buffer_index_end_right = 0
-
-        # initialize recording
-        raw_data_left = array("h")
-        raw_data_right = array("h")
-        index = 0
-        start_point = 0
-        StartTime = time.time()
-        TimeUse = 0
-        cancelled = False
-        print("* recording: ")
-
-        num_unv = 0
-        ignore = 5
-
-        while not got_a_sentence and TimeUse <= THR_TIME:
-            if not self.__vad_enabled:
-                cancelled = True
-                break
-
-            try:
-                frame = self.recorded_frames.get(block=False)
-            except Exception as e:
-                continue
-
-            if ignore > 0:
-                ignore = ignore - 1
-                continue
-
-            chunk_left = frame[AudioChannel.LEFT]
-            chunk_right = frame[AudioChannel.RIGHT]
-            filtered_left = frame[AudioChannel.FILTERED_LEFT][0:960]
-            filtered_right = frame[AudioChannel.FILTERED_RIGHT][0:960]
-
-            decoded_block_left = np.fromstring(filtered_left, "Int16")
-            decoded_block_right = np.fromstring(filtered_right, "Int16")
-
-            # add WangS
-            raw_data_left.extend(array("h", chunk_left))
-            raw_data_right.extend(array("h", chunk_right))
-            index += len(decoded_block_left)
-            TimeUse = time.time() - StartTime
-
-            # check chunk for voice activity
-            def check_activity(block):
-                power = np.mean(np.abs(block))
-                return power > THR_POWER
-
-            active = check_activity(decoded_block_left) and check_activity(
-                decoded_block_right
-            )
-            if active:
-                num_unv = 0
-            else:
-                num_unv = num_unv + 1
-
-            # display activity status
-            print("O" if active else "-", end="")
-
-            # update ring buffer's start and end flags
-            def update_ring_buffer(
-                ring_buffer,
-                ring_buffer_flags,
-                ring_buffer_flags_end,
-                ring_buffer_index,
-                ring_buffer_index_end,
-                active,
-                chunk,
-            ):
-                ring_buffer_flags[ring_buffer_index] = 1 if active else 0
-                ring_buffer_index += 1
-                ring_buffer_index %= NUM_WINDOW_CHUNKS
-                ring_buffer_flags_end[ring_buffer_index_end] = 1 if active else 0
-                ring_buffer_index_end += 1
-                ring_buffer_index_end %= NUM_WINDOW_CHUNKS_END
-                ring_buffer.append(chunk)
-
-            update_ring_buffer(
-                ring_buffer_left,
-                ring_buffer_flags_left,
-                ring_buffer_flags_end_left,
-                ring_buffer_index_left,
-                ring_buffer_index_end_left,
-                active,
-                chunk_left,
-            )
-            update_ring_buffer(
-                ring_buffer_right,
-                ring_buffer_flags_right,
-                ring_buffer_flags_end_right,
-                ring_buffer_index_right,
-                ring_buffer_index_end_right,
-                active,
-                chunk_right,
-            )
-
-            # start point detection
-            if not triggered:
-                num_voiced_left = sum(ring_buffer_flags_left)
-                num_voiced_right = sum(ring_buffer_flags_right)
-                if num_voiced_left > THR_VOICED or num_voiced_right > THR_VOICED:
-                    sys.stdout.write("<<")
-                    ring_buffer_flags_end_left = [1] * NUM_WINDOW_CHUNKS_END
-                    ring_buffer_flags_end_right = [1] * NUM_WINDOW_CHUNKS_END
-                    triggered = True
-                    start_point = index - 512 * 8  # start point
-                    ring_buffer_left.clear()
-                    ring_buffer_right.clear()
-            else:
-                if num_unv > THR_UNVOICED or TimeUse > THR_TIME:
-                    sys.stdout.write(">>")
-                    triggered = False
-                    got_a_sentence = True
-
-            sys.stdout.flush()
-        sys.stdout.write("\n")
-
-        if cancelled:
-            print("* vad cancelled")
-        else:
-            print("* done recording")
-            if True:
-                got_a_sentence = False
-
-                # write to file
-                raw_data_left.reverse()
-                raw_data_right.reverse()
-                for index in range(start_point):
-                    raw_data_left.pop()
-                    raw_data_right.pop()
-                raw_data_left.reverse()
-                raw_data_right.reverse()
-
-                if DO_NORMALIZE:
-                    raw_data_left = normalize(raw_data_left)
-                    raw_data_right = normalize(raw_data_right)
-
-                now = datetime.datetime.now()
-                fname = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
-                print(fname)
-                record_to_file(fname, (raw_data_left, raw_data_right), 2, RATE)
-
-                print("Saved to " + fname)
-                if has_ros:
-                    # Ensure the quality of the recorded audio is up to par.
-                    AudioEnhancement(fname).enhance()
-                    self.pub.publish(fname)
-            if got_a_sentence:
-                got_a_sentence = False
-            else:
-                pass
+        if has_ros:
+            # Ensure the quality of the recorded audio is up to par.
+            AudioEnhancement(fname).enhance()
+            self.pub.publish(fname)
 
 
 def main():
