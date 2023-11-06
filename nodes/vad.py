@@ -35,20 +35,20 @@ from array import array
 from struct import pack
 from scipy.signal import butter, lfilter, lfilter_zi
 
-has_ros = True
 try:
     import rospy
     from std_msgs.msg import String, Bool
     from rospkg import RosPack
-    from dialogflow_actions.msg import (
+    from human_interactions.msg import (
         TurnToHumanGoal,
     )
-    from dialogflow_actions.clients.turn_to_human_action_client import (
+    from human_interactions.clients.turn_to_human_action_client import (
         TurnToHumanActionClient,
     )
     from sound_processing.enhance_audio import AudioEnhancement
 except:
-    has_ros = False
+    rospy.logerr(f"\033[91mFailed to access ROS modules.\nAborting.")
+    exit()
 
 porcupine = None
 pa = None
@@ -127,22 +127,19 @@ class PorcupineDemo(Thread):
             self._recorded_frames_left = []
             self._recorded_frames_right = []
 
-        if has_ros:
-            print("Opening ros")
-            rospy.init_node("vad", anonymous=True)
-            print("Connecting to publisher")
-            self.pub = rospy.Publisher("wav_send", String, queue_size=10)
+        rospy.init_node("vad", anonymous=True)
+        print("Connecting to publisher")
+        self.pub = rospy.Publisher("wav_send", String, queue_size=10)
 
-            self.turn_to_human_client = TurnToHumanActionClient()
+        self.turn_to_human_client = TurnToHumanActionClient()
 
-            self.sub_activate_vad = rospy.Subscriber(
-                "/activate_vad", Bool, self.__activate_vad_callback
-            )
-            self.run_once_sub = rospy.Subscriber(
-                "/vad_run_once", Bool, self.__run_once_callback
-            )
-        else:
-            self.pub = None
+        self.sub_activate_vad = rospy.Subscriber(
+            "/activate_vad", Bool, self.__activate_vad_callback
+        )
+        self.run_once_sub = rospy.Subscriber(
+            "/vad_run_once", Bool, self.__run_once_callback
+        )
+
         print("Initialization done.")
 
     def __activate_vad_callback(self, data):
@@ -332,11 +329,6 @@ class PorcupineDemo(Thread):
                     last_keyword_detection_time = datetime.datetime.now()
 
                     print("Keyword detected.")
-
-                    # Orient robot towards the human.
-                    # if has_ros:
-                    #     self.turn_to_human_client.send_goal(TurnToHumanGoal())
-                    #     self.turn_to_human_client.wait_for_result()
 
                     # Record voice command.
                     self.play_name = "on"
@@ -556,10 +548,9 @@ class PorcupineDemo(Thread):
         record_to_file(fname, (raw_data_left, raw_data_right), 2, FRAME_RATE)
         print("Saved to recording to '%s'." % fname)
 
-        if has_ros:
-            # Ensure the quality of the recorded audio is up to par.
-            AudioEnhancement(fname).enhance()
-            self.pub.publish(fname)
+        # Ensure the quality of the recorded audio is up to par.
+        AudioEnhancement(fname).enhance()
+        self.pub.publish(fname)
 
 
 def main():
