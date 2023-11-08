@@ -29,8 +29,8 @@ from threading import Thread
 import numpy as np
 import pyaudio
 import pvporcupine
-from scipy.signal import butter, lfilter, lfilter_zi
 import struct
+from scipy.signal import butter, lfilter, lfilter_zi
 
 # ROS
 import rospy
@@ -48,6 +48,7 @@ class AudioChannel:
         FILTERED_LEFT: Represents filtered audio from left channel.
         FILTERED_RIGHT: Represents filtered audio from right channel.
     """
+
     LEFT = 0
     RIGHT = 1
     FILTERED_LEFT = 2
@@ -166,6 +167,7 @@ class VoiceActivationDetector(Thread):
             output (str): String output.
             status (pa.Continue, pa.Abort, etc): How to proceed.
         """
+
         def get_audio_split_to_channels(in_data):
             def butter_bandpass(lowcut, highcut, frame_rate, order=5):
                 nyq = 0.5 * frame_rate
@@ -403,12 +405,15 @@ class VoiceActivationDetector(Thread):
     def clear_recorded_frames(self):
         """
         Clear any queued audio frames.
+
+        Useful if there is a time-consuming action in between when the wake-word
+        was detected and when we want to start recording the voice command.
         """
-        while True:
-            try:
-                self._recorded_frames.get(block=False)
-            except:
-                break
+        # Warning: self._recorded_frames.empty() does seem to work as intended.
+        # Using it in the condition exits the loop while there are still items
+        # in the queue.
+        while self._recorded_frames.qsize() != 0:
+            self._recorded_frames.get()
 
     def record_voice_command(self, normalize_audio=True):
         """
@@ -422,6 +427,9 @@ class VoiceActivationDetector(Thread):
 
         Args:
             normalize_audio (bool): Whether the recorded audio should be normalized before saving.
+
+        Returns:
+            file_path (str): Path of the audio file the recording was saved to.
         """
         # Consider command started after that many voiced frames.
         VOICED_FRAMES_THR = 10
@@ -454,9 +462,6 @@ class VoiceActivationDetector(Thread):
             buffer_size=WINDOW_LENGTH
         )
 
-        # Clear any queued frames.
-        self.clear_recorded_frames()
-
         # Initialize recording.
         raw_data_left = array("h")
         raw_data_right = array("h")
@@ -478,14 +483,16 @@ class VoiceActivationDetector(Thread):
 
             print(f"\r{frames_str}", end="\r")
 
+        # Clear any queued frames before recording.
+        self.clear_recorded_frames()
+
         print("Recording:")
         # Record sound while the loop is active.
         while not got_a_sentence and TimeUse <= RECORDING_TIME_LIMIT:
             # Get the active audio frame.
             try:
                 frame = self._recorded_frames.get(block=False)
-            except Exception:
-                # print("No frame available.")
+            except:
                 continue
 
             # Skip a few frames at the start, to make sure the 'wake-word' is
@@ -597,8 +604,9 @@ class VoiceActivationDetector(Thread):
             VoiceActivationDetector.FRAME_RATE,
         )
         print("Saved to recording to '%s'." % file_path)
-
         self._audio_file_publisher.publish(file_path)
+
+        return file_path
 
     def run(self, run_once=False):
         """
@@ -616,9 +624,6 @@ class VoiceActivationDetector(Thread):
             if self.run_wake_word_detection():
                 # Record voice command.
                 self.record_voice_command()
-
-                # Clear any queued frames.
-                self.clear_recorded_frames()
 
             if run_once:
                 break
