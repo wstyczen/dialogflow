@@ -553,7 +553,7 @@ class VoiceActivationDetector(Thread):
 
         print(frames_str)
         if got_a_sentence:
-            print("Ended early because of silent frames.")
+            print("Ended early because a sentence was detected.")
         elif TimeUse > RECORDING_TIME_LIMIT:
             print("Time limit reached.")
         print("Recording ended.")
