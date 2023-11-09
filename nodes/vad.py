@@ -415,7 +415,7 @@ class VoiceActivationDetector(Thread):
         while self._recorded_frames.qsize() != 0:
             self._recorded_frames.get()
 
-    def record_voice_command(self, normalize_audio=True):
+    def record_voice_command(self):
         """
         Record a voice command after a trigger is detected.
 
@@ -424,9 +424,6 @@ class VoiceActivationDetector(Thread):
         or the time limit has been reached.
 
         Recorded audio is saved to a file.
-
-        Args:
-            normalize_audio (bool): Whether the recorded audio should be normalized before saving.
 
         Returns:
             file_path (str): Path of the audio file the recording was saved to.
@@ -557,19 +554,6 @@ class VoiceActivationDetector(Thread):
         elif TimeUse > RECORDING_TIME_LIMIT:
             print("Time limit reached.")
         print("Recording ended.")
-
-        def normalize(audio_data):
-            """Normalize the volume of the data."""
-            MAXIMUM = 32767  # 16384
-            times = float(MAXIMUM) / max(abs(i) for i in audio_data)
-            r = array("h")
-            for i in audio_data:
-                r.append(int(i * times))
-            return r
-
-        if normalize_audio:
-            raw_data_left = normalize(raw_data_left)
-            raw_data_right = normalize(raw_data_right)
 
         # Save audio to a file.
         now = datetime.datetime.now()
