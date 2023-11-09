@@ -20,6 +20,7 @@
 import collections
 import datetime
 import os
+import struct
 import time
 import wave
 from array import array
@@ -29,7 +30,6 @@ from threading import Thread
 import numpy as np
 import pyaudio
 import pvporcupine
-import struct
 from scipy.signal import butter, lfilter, lfilter_zi
 
 # ROS

@@ -14,20 +14,26 @@ def speech_to_text(audio_path):
 
     Args:
         audio_path (str): Path to the audio file to be interpreted.
+
+    Returns:
+        response (tuple[str, float]): Return the most likely transcript and its
+            probability.
     """
     speech_recognizer = sr.Recognizer()
 
-    with sr.AudioFile(audio_path) as f:
-        audio_data = speech_recognizer.record(f)
+    with sr.AudioFile(audio_path) as audio:
+        # Adjust for noise in the audio beforehand, gives mixed results so far.
+        # speech_recognizer.adjust_for_ambient_noise(source=audio, duration=0.5)
 
-    try:
-        # APIs for a lot of different engines are available.
-        text = speech_recognizer.recognize_google(audio_data)
-        return True, text
-    except sr.UnknownValueError:
-        return False, "Audio recognition failed."
-    except sr.RequestError as e:
-        return False, f"Request failed: {e}"
+        audio_data = speech_recognizer.record(audio)
+
+    # APIs for a lot of different engines are available, ie recognize_bing()
+    response = speech_recognizer.recognize_google(
+        audio_data, language="en-US", show_all=True
+    )
+    # Get the prediction with highest probability from response.
+    prediction = response["alternative"][0]
+    return prediction["transcript"], prediction["confidence"]
 
 
 if __name__ == "__main__":
@@ -35,5 +41,9 @@ if __name__ == "__main__":
 
     print("Performing speech to text:")
     for file_path in rospy.get_param("~audio_files").split():
-        stt_successful, stt_result = speech_to_text(file_path)
-        print(f"- '{file_path}' --> '{stt_result}'")
+        print(f"- '{file_path}' --> ", end="")
+        try:
+            transcription, probability = speech_to_text(file_path)
+            print(f"transcription: '{transcription}', probability: {probability:.2f}")
+        except:
+            print(f"FAILED")

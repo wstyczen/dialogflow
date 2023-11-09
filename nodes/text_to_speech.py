@@ -1,9 +1,10 @@
 #!/usr/bin/env python3.6
 import os
 
-import pygame
 import rospy
 from rospkg import RosPack
+
+import pygame
 from gtts import gTTS
 
 PACKAGE_PATH = RosPack().get_path("dialogflow")

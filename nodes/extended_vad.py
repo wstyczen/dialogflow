@@ -15,6 +15,8 @@ from human_interactions.client.move_to_human_action_client import (
 from sound_processing.enhance_audio import AudioEnhancement
 from std_msgs.msg import String
 
+from speech_recognition import RequestError, UnknownValueError
+
 from vad import VoiceActivationDetector
 from text_to_speech import play_tts
 from speech_to_text import speech_to_text
@@ -57,7 +59,7 @@ class ExtendedVAD:
         self._move_to_human_client.send_goal(MoveToHumanGoal())
         self._move_to_human_client.wait_for_result()
 
-        # Ask for repeating the command.
+        # Ask the person to repeat the command.
         print("Asking the person to repeat the command.")
         play_tts("Please repeat previous command.")
 
@@ -95,17 +97,26 @@ class ExtendedVAD:
 
             # Interpret the command (speech-to-text).
             self.print_step("Interpreting the voice command.")
-            stt_successful, stt_result = speech_to_text(audio_path)
-            # If stt was not successful run the emergency action, to get better
-            # audio.
-            # TODO: Check stt prediction probability is high enough ???
-            if stt_successful:
-                print(f"Interpreted voice command as: '{stt_result}'.")
-            else:
+            should_run_emergency_action = False
+            STT_PROBABILITY_THRESHOLD = 0.9
+            try:
+                stt_text, stt_probability = speech_to_text(audio_path)
                 print(
-                    f"Speech-to-text failed with message '{stt_result}'. Quitting scenario."
+                    f"Interpreted voice command as: : '{stt_text}'  with probability of {stt_probability:.2f}."
                 )
-                # Run the emergency action & move back to the step of recording.
+                if stt_probability < STT_PROBABILITY_THRESHOLD:
+                    print(f"Speech-to-text probability too low.")
+                    should_run_emergency_action = True
+            except RequestError as e:
+                print(f"Speech-to-text API request failed: '{e}'.\nQuitting_scenario.")
+                return 2
+            except UnknownValueError:
+                print(f"Speech-to-text could not produce a result.")
+                should_run_emergency_action = True
+
+            # If stt was not successful or the probability is too low,
+            # run the emergency action in order to get better audio.
+            if should_run_emergency_action:
                 self.run_emergency_action()
                 # After performing the emergency action, move_back to the step
                 # of recording voice command.
