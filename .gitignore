@@ -1,7 +1,4 @@
-output.wav
-data/recordings.aup
-data/recordings_data/
-data/test_file.py
-*.pyc
-*wav
 .vscode/
+*.pyc
+*.wav
+*.mp3
