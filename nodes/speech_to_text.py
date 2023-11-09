@@ -1,8 +1,7 @@
 #!/usr/bin/env python3.6
-import os
-
 import rospy
 from rospkg import RosPack
+
 import speech_recognition as sr
 
 PACKAGE_PATH = RosPack().get_path("dialogflow")
@@ -24,11 +23,11 @@ def speech_to_text(audio_path):
     try:
         # APIs for a lot of different engines are available.
         text = speech_recognizer.recognize_google(audio_data)
-        return text
+        return True, text
     except sr.UnknownValueError:
-        return "Audio recognition failed."
+        return False, "Audio recognition failed."
     except sr.RequestError as e:
-        return f"Request failed: {e}"
+        return False, f"Request failed: {e}"
 
 
 if __name__ == "__main__":
@@ -36,4 +35,5 @@ if __name__ == "__main__":
 
     print("Performing speech to text:")
     for file_path in rospy.get_param("~audio_files").split():
-        print(f"- '{file_path}' --> '{speech_to_text(file_path)}'")
+        stt_successful, stt_result = speech_to_text(file_path)
+        print(f"- '{file_path}' --> '{stt_result}'")
