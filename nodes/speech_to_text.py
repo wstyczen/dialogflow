@@ -1,11 +1,9 @@
 #!/usr/bin/env python3.6
+import os
+
 import rospy
-from rospkg import RosPack
-
 import speech_recognition as sr
-
-PACKAGE_PATH = RosPack().get_path("dialogflow")
-
+from sound_processing.enhance_audio import AudioEnhancement
 
 def speech_to_text(audio_path):
     """
@@ -41,9 +39,22 @@ if __name__ == "__main__":
 
     print("Performing speech to text:")
     for file_path in rospy.get_param("~audio_files").split():
-        print(f"- '{file_path}' --> ", end="")
+        print(f"- '{file_path}':",)
         try:
             transcription, probability = speech_to_text(file_path)
-            print(f"transcription: '{transcription}', probability: {probability:.2f}")
+            print(f"-> Default audio: {{transcription: '{transcription}', probability: {probability:.2f}}}")
         except:
             print(f"FAILED")
+
+        # Copy the file and enhance it.
+        TMP_AUDIO_PATH = "/tmp/tmp.wav"
+        os.system(f'cp {file_path} {TMP_AUDIO_PATH}')
+        AudioEnhancement(TMP_AUDIO_PATH).enhance(use_api=True)
+
+        # Try speech to text again.
+        try:
+            transcription, probability = speech_to_text(TMP_AUDIO_PATH)
+            print(f"-> Enahnced audio: {{transcription: '{transcription}', probability: {probability:.2f}}}")
+        except:
+            print(f"FAILED")
+
