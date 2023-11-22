@@ -220,27 +220,29 @@ class VoiceActivationDetector(Thread):
 
     def open_audio_stream(self):
         """
-        Opens the input audio stream.
+        Open the input audio stream if closed.
         """
-        self._audio_stream = self._pyaudio_handle.open(
-            format=pyaudio.paInt16,
-            channels=2,
-            rate=VoiceActivationDetector.FRAME_RATE,
-            input=True,
-            frames_per_buffer=VoiceActivationDetector.FRAME_LENGTH,
-            stream_callback=self._audio_stream_callback,
-        )
+        if self._audio_stream is None:
+            self._audio_stream = self._pyaudio_handle.open(
+                format=pyaudio.paInt16,
+                channels=2,
+                rate=VoiceActivationDetector.FRAME_RATE,
+                input=True,
+                frames_per_buffer=VoiceActivationDetector.FRAME_LENGTH,
+                stream_callback=self._audio_stream_callback,
+            )
 
     def close_audio_stream(self):
         """
-        Closes the input audio stream.
+        Close the input audio stream if open.
         """
         if self._audio_stream is not None:
             self._audio_stream.close()
+            self._audio_stream = None
 
     def run_wake_word_detection(self):
         """
-        Monitors the input audio stream for occurences of the wake-word(s) using
+        Monitor the input audio stream for occurences of the wake-word(s) using
         Porcupine engines.
 
         Can be triggered manually via topic.

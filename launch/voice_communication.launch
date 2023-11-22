@@ -2,5 +2,5 @@
   <param name="turn_to_human_action_name" type="string" value="/turn_to_human"/>
   <param name="audio_file_topic" type="string" value="/audio_wav" />
 
-  <node pkg="dialogflow" type="extended_vad.py" name="extended_vad" output="screen" />
+  <node pkg="dialogflow" type="voice_communication.py" name="voice_communication" output="screen" />
 </launch>
