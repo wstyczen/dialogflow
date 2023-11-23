@@ -13,7 +13,7 @@ from human_interactions.clients.turn_to_human_action_client import (
 from sound_processing.enhance_audio import AudioEnhancement
 from speech_to_text import speech_to_text
 from text_to_speech import play_tts
-from vad import VoiceActivationDetector
+from vad import VAD
 
 
 class VoiceCommunication:
@@ -21,15 +21,16 @@ class VoiceCommunication:
     Class for managing voice communication scenarios with the robot.
 
     Attributes:
-        _vad (VoiceActivationDetector): VAD instance for voice activity detection.
+        _vad (VAD): VAD instance for voice activity detection.
         _turn_to_human_client (TurnToHumanActionClient): Client for the TurnToHuman action server.
         _fallback_action_runner (FallbackActionRunner): Fallback action runner for handling various scenarios.
     """
+
     def __init__(self):
         """
         Initialize a VoiceCommunication instance.
         """
-        self._vad = VoiceActivationDetector()
+        self._vad = VAD()
         self._vad.open_audio_stream()
 
         # Client for the TurnToHuman action server.

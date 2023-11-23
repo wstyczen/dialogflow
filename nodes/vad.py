@@ -55,7 +55,7 @@ class AudioChannel:
     FILTERED_RIGHT = 3
 
 
-class VoiceActivationDetector(Thread):
+class VAD(Thread):
     """
     Voice Activation Detector (VAD) - utilizes Porcupine library for wake-word
     detection. Creates an input audio stream from microphone(s) and monitors
@@ -107,7 +107,7 @@ class VoiceActivationDetector(Thread):
         """
         print("Initializing VAD.")
 
-        super(VoiceActivationDetector, self).__init__()
+        super(VAD, self).__init__()
         self._access_key = access_key
         self._keyword_file_paths = keyword_file_paths
         self._sensitivities = sensitivities
@@ -182,9 +182,7 @@ class VoiceActivationDetector(Thread):
                 """
                 in_data = struct.pack("<" + ("h" * len(block)), *block)
 
-                b, a = butter_bandpass(
-                    low_pass, high_pass, VoiceActivationDetector.FRAME_RATE, order=5
-                )
+                b, a = butter_bandpass(low_pass, high_pass, VAD.FRAME_RATE, order=5)
                 zi_global = lfilter_zi(b, a)
 
                 filtered_block, _ = lfilter(b, a, block, zi=zi_global)
@@ -226,9 +224,9 @@ class VoiceActivationDetector(Thread):
             self._audio_stream = self._pyaudio_handle.open(
                 format=pyaudio.paInt16,
                 channels=2,
-                rate=VoiceActivationDetector.FRAME_RATE,
+                rate=VAD.FRAME_RATE,
                 input=True,
-                frames_per_buffer=VoiceActivationDetector.FRAME_LENGTH,
+                frames_per_buffer=VAD.FRAME_LENGTH,
                 stream_callback=self._audio_stream_callback,
             )
 
@@ -404,6 +402,64 @@ class VoiceActivationDetector(Thread):
             power = np.mean(np.abs(frame))
             return int(power > cls.VOICED_POWER_THRESHOLD)
 
+    class AudioRecorder:
+        """
+        A class for saving audio in 16-bit format to a file frame by frame.
+
+        Attributes:
+            file_path (str): Path of the output file.
+            _wave (wave.Wave_write): The Wave_write object for saving audio frames.
+        """
+
+        @staticmethod
+        def generate_file_path():
+            """
+            Generate a unique file path in /tmp/ based on the current time stamp.
+
+            Returns:
+                str: The file path.
+            """
+            return datetime.datetime.now().strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
+
+        def __init__(
+            self,
+            file_path=None,
+            sample_width=2,
+        ):
+            """
+            Initialize an instance of AudioRecorder.
+
+            Args:
+                file_path (str, optional): The output file path.
+                sample_width (int, optional): The sample width in bytes.
+            """
+            self.file_path = (
+                file_path if file_path is not None else self.generate_file_path()
+            )
+            self._wave = wave.open(self.file_path, "wb")
+            self._wave.setnchannels(2)
+            self._wave.setsampwidth(sample_width)
+            self._wave.setframerate(VAD.FRAME_RATE)
+
+        def write_frames(self, left_frame, right_frame):
+            """
+            Write audio frames to the file.
+
+            Args:
+                left_frame (array): Array containing left channel audio frames.
+                right_frame (array): Array containing right channel audio frames.
+            """
+            # Save each frame in 16-bit format.
+            for left, right in zip(left_frame, right_frame):
+                self._wave.writeframes(struct.pack("<h", left))
+                self._wave.writeframes(struct.pack("<h", right))
+
+        def close(self):
+            """
+            Close the wave and the output file.
+            """
+            self._wave.close()
+
     def clear_recorded_frames(self):
         """
         Clear any queued audio frames.
@@ -411,9 +467,9 @@ class VoiceActivationDetector(Thread):
         Useful if there is a time-consuming action in between when the wake-word
         was detected and when we want to start recording the voice command.
         """
-        # Warning: self._recorded_frames.empty() does seem to work as intended.
-        # Using it in the condition exits the loop while there are still items
-        # in the queue.
+        # Warning: self._recorded_frames.empty() does not seem to work as
+        # intended. Using it in the condition exits the loop while there are
+        # still items in the queue.
         while self._recorded_frames.qsize() != 0:
             self._recorded_frames.get()
 
@@ -456,16 +512,8 @@ class VoiceActivationDetector(Thread):
         ignore = 5
 
         # Initialize voiced frames trackers.
-        voiced_frames_tracker_left = self.VoicedFramesTracker(buffer_size=WINDOW_LENGTH)
-        voiced_frames_tracker_right = self.VoicedFramesTracker(
-            buffer_size=WINDOW_LENGTH
-        )
-
-        # Initialize recording.
-        raw_data_left = array("h")
-        raw_data_right = array("h")
-        StartTime = time.time()
-        TimeUse = 0
+        voiced_frames_tracker_left = VAD.VoicedFramesTracker(buffer_size=WINDOW_LENGTH)
+        voiced_frames_tracker_right = VAD.VoicedFramesTracker(buffer_size=WINDOW_LENGTH)
 
         frames_str = ""
 
@@ -486,8 +534,10 @@ class VoiceActivationDetector(Thread):
         self.clear_recorded_frames()
 
         print("Recording:")
+        start_time = time.time()
+        audio_recorder = VAD.AudioRecorder()
         # Record sound while the loop is active.
-        while not got_a_sentence and TimeUse <= RECORDING_TIME_LIMIT:
+        while not got_a_sentence and time.time() - start_time <= RECORDING_TIME_LIMIT:
             # Get the active audio frame.
             try:
                 frame = self._recorded_frames.get(block=False)
@@ -509,9 +559,8 @@ class VoiceActivationDetector(Thread):
             decoded_block_left = np.fromstring(filtered_left, "Int16")
             decoded_block_right = np.fromstring(filtered_right, "Int16")
 
-            # Keep data for saving later.
-            raw_data_left.extend(array("h", chunk_left))
-            raw_data_right.extend(array("h", chunk_right))
+            # Save frame to a file.
+            audio_recorder.write_frames(array("h", chunk_left), array("h", chunk_right))
 
             # Check if frame is 'voiced'.
             is_voiced_left = voiced_frames_tracker_left.is_voiced(decoded_block_left)
@@ -547,52 +596,19 @@ class VoiceActivationDetector(Thread):
             ):
                 got_a_sentence = True
 
-            # Update time recorded.
-            TimeUse = time.time() - StartTime
-
         print(frames_str)
         if got_a_sentence:
             print("Ended early because a sentence was detected.")
-        elif TimeUse > RECORDING_TIME_LIMIT:
+        elif time.time() - start_time > RECORDING_TIME_LIMIT:
             print("Time limit reached.")
         print("Recording ended.")
 
-        # Save audio to a file.
-        now = datetime.datetime.now()
-        file_path = now.strftime("/tmp/%m-%d-%Y-%H-%M-%S") + ".wav"
+        # Finish recording.
+        audio_recorder.close()
+        print("Saved recording to '%s'." % audio_recorder.file_path)
+        self._audio_file_publisher.publish(audio_recorder.file_path)
 
-        def record_to_file(path, data, sample_width, rate):
-            """
-            Output the audio data to a file.
-
-            Args:
-                path (str): The file path where the audio will be saved.
-                data (tuple): The audio data.
-                sample_width (int): The sample width in bytes.
-                rate (int): Audio's frame rate (in samples per second).
-            """
-            (channel_left, channel_right) = data
-            wf = wave.open(path, "wb")
-            wf.setnchannels(2)
-            wf.setsampwidth(sample_width)
-            wf.setframerate(rate)
-            for left, right in zip(channel_left, channel_right):
-                left_frame = struct.pack("<h", left)
-                wf.writeframes(left_frame)
-                right_frame = struct.pack("<h", right)
-                wf.writeframes(right_frame)
-            wf.close()
-
-        record_to_file(
-            file_path,
-            (raw_data_left, raw_data_right),
-            2,
-            VoiceActivationDetector.FRAME_RATE,
-        )
-        print("Saved to recording to '%s'." % file_path)
-        self._audio_file_publisher.publish(file_path)
-
-        return file_path
+        return audio_recorder.file_path
 
     def run(self, run_once=False):
         """
@@ -608,7 +624,6 @@ class VoiceActivationDetector(Thread):
 
         while True:
             if self.run_wake_word_detection():
-                # Record voice command.
                 self.record_voice_command()
 
             if run_once:
@@ -618,4 +633,4 @@ class VoiceActivationDetector(Thread):
 if __name__ == "__main__":
     rospy.init_node("vad", anonymous=True)
 
-    VoiceActivationDetector().run()
+    VAD().run(run_once=True)

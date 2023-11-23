@@ -9,7 +9,7 @@ from human_interactions.msg import (
 )
 from speech_to_text import speech_to_text
 from text_to_speech import play_tts
-from vad import VoiceActivationDetector
+from vad import VAD
 
 
 class FallbackAction(str, Enum):
@@ -43,7 +43,7 @@ class FallbackActionRunner:
 
     Attributes:
         _move_to_human_client (MoveToHumanActionClient): Client for MoveToHuman action server.
-        _vad (VoiceActivationDetector): VAD instance for recording user feedback.
+        _vad (VAD): VAD instance for recording user feedback.
     """
 
     def __init__(self):
@@ -54,7 +54,7 @@ class FallbackActionRunner:
         self._move_to_human_client = MoveToHumanActionClient()
 
         # VAD instance for recording user feedback.
-        self._vad = VoiceActivationDetector()
+        self._vad = VAD()
 
     def _request_higher_volume(self):
         """Ask the speaker to repeat the voice command at a higher volume."""
