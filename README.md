@@ -8,11 +8,11 @@
   - [VAD](#vad)
     - [Functionality](#functionality)
     - [Running VAD](#running-vad)
-  - [Extended VAD](#extended-vad)
+  - [Voice communication system](#voice-communication-system)
     - [Functionality](#functionality-1)
-      - [Basic extended scenario](#basic-extended-scenario)
-      - [Emergency action](#emergency-action)
-    - [Running extended VAD](#running-extended-vad)
+      - [Basic working scenario](#basic-working-scenario)
+      - [Fallback actions](#fallback-actions)
+    - [Running the voice communication system](#running-the-voice-communication-system)
 
 ## Dependencies
 
@@ -53,31 +53,31 @@ pip3 install gtts numpy pyaudio pygame pvporcupine scipy SpeechRecognition
 roslaunch dialogflow vad.launch
 ```
 
-## Extended VAD
+## Voice communication system
 
 ### Functionality
 
-> Extends the [VAD](#vad) with features like robot movement in relation to the person's location, sound enhancement or voice comunication.
+> Utilizes the [VAD](#vad) functionality to listen for voice commands and extends it with additional steps and fallback actions.
 
-#### Basic extended scenario
+#### Basic working scenario
 
 1. Run wake-word detection.
 2. Upon detecting the wake-word orient the robot towards the human (can take some time, depending on the movement required).
 3. Robot asks the person to give their voice command.
 4. Recording of the command starts.
-5. When the recording finishes, the audio is saved to a .wav file and the path to the audio is returned.
-6. Audio is passed to [the sound processing package](https://github.com/wstyczen/sound_processing) and its quality is (hopefully) enhanced.
-7. Speech-to-text is performed on the recorded audio. If it can't be inferred with high enough probability the [emergency_action](#emergency-action) is performed.
-8. The text intepreted from voice command is passed to intent detection for whatever use.
+5. When the recording finishes, the audio is saved to a .wav file and the path to the audio is published.
+6. Audio is passed to [the sound processing package](https://github.com/wstyczen/sound_processing) and its quality is enhanced.
+7. Speech-to-text is performed on the recorded audio.
+8. The text interpretation of the voice command is passed to intent detection for further processing (UNIMPLEMENTED).
 
-#### Emergency action
+#### Fallback actions
 
-1. Voice notification about performing the action.
-2. Moving nearby the person for better audio quality.
-3. Asking the person to repeat the voice command.
-4. Start to record again.
+> Various fallback actions are performed in case of failure of any of the above steps.
+>
+> Implementation in progress.
+> **TODO: Describe the fallback actions and their execution conditions when done.**
 
-### Running extended VAD
+### Running the voice communication system
 
 ```sh
 # Run the RVIZ Rico simulation.
@@ -85,5 +85,5 @@ roslaunch human_interactions run_simulation.launch
 # Run the human interactions action servers.
 roslaunch human_interactions action_servers.launch
 # Run the extended vad node.
-roslaunch dialogflow extended_vad.launch
+roslaunch dialogflow voice_communication.launch
 ```
