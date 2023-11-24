@@ -41,7 +41,7 @@ class VoiceCommunication:
 
     def run(self):
         """
-        Runs a voice communication system with a robot.
+        Initiates the voice communication system for a robot.
 
         This method always performs the following steps:
             1. Wait for wake word (keyword detection loop).
@@ -52,14 +52,15 @@ class VoiceCommunication:
             6. Use speech-to-text API to convert the command to text.
             7. Pass the command to a intent detection system (UNIMPLEMENTED).
 
-        There are various ways the scenario above can fail. There are fallback
+        There are various ways the scenario above can fail. Various fallback
         mechanisms in place to handle such cases. To find out more check out the
         FallbackActionRunner module.
 
         Instant failure conditions:
             1. Failure to initialize VAD module (necessary to record & analyze
                 the audio).
-            2. Failure to send API request (necessary to parse the audio). May be caused by no internet connection.
+            2. Failure to send an API request (necessary to parse the audio).
+                May be caused by no internet connection.
         """
         # Wait for keyword.
         print("Running keyword detection.")
@@ -70,7 +71,9 @@ class VoiceCommunication:
         # When keyword is detected rotate the robot to face the human.
         print("Facing the human.")
         self._turn_to_human_client.send_goal(TurnToHumanGoal())
-        # TODO: Should we wait for completion ??
+        # TODO: Should the robot wait for until the movement is completed or
+        # record command immediately ??
+        # TODO: Handle failure of the request.
         self._turn_to_human_client.wait_for_result()
 
         # Notify the person of the readiness to take commands.
@@ -91,25 +94,29 @@ class VoiceCommunication:
                 self._fallback_action_runner.run(FallbackAction.REQUEST_HIGHER_VOLUME)
                 continue
 
-            # Enhance recording audio quality.
+            # Enhance recorded audio.
             print("Enhancing recorded audio quality.")
             AudioEnhancement(audio_path).enhance()
 
-            # Interpret the command (speech-to-text).
             def on_stt_fail():
                 # Run when the speech-to-text fails outright or the response
                 # probability is really low.
                 self._fallback_action_runner.run(FallbackAction.MOVE_CLOSER_TO_SPEAKER)
 
             print("Interpreting the voice command.")
+            # Interpret the command (speech-to-text).
+            # - If the stt fails or the response certainty is really low,
+            # run the default emergency action.
+            # - If response certainty is decent, but still uncertain ask for
+            # confirmation.
+            # - If the certainty is really high, assume the response is correct.
             STT_VALID_PROBABILITY_THRESHOLD = 0.9
             STT_MAYBE_PROBABILITY_THERSHOLD = 0.75
             try:
                 stt_text, stt_probability = speech_to_text(audio_path)
                 print(
-                    f"Interpreted voice command as: : '{stt_text}'  with probability of {stt_probability:.2f}."
+                    f"Interpreted the voice command as: '{stt_text}'  with probability of {stt_probability:.2f}."
                 )
-                # If the probability
                 if stt_probability < STT_MAYBE_PROBABILITY_THERSHOLD:
                     print(
                         f"Speech-to-text probability too low (<{STT_MAYBE_PROBABILITY_THERSHOLD})."
@@ -118,7 +125,7 @@ class VoiceCommunication:
                     continue
                 elif stt_probability < STT_VALID_PROBABILITY_THRESHOLD:
                     print(
-                        f"Speech-to-text probability uncertain (<{STT_MAYBE_PROBABILITY_THERSHOLD})."
+                        f"Speech-to-text probability uncertain (<{STT_VALID_PROBABILITY_THRESHOLD})."
                     )
                     self._fallback_action_runner.run(
                         FallbackAction.ASK_FOR_CONFIRMATION, stt_text
@@ -126,26 +133,28 @@ class VoiceCommunication:
                     continue
 
             except RequestError as e:
-                print(f"Speech-to-text API request failed: '{e}'.\nQuitting_scenario.")
+                print(f"Speech-to-text API request failed: '{e}'.")
                 return 2
-            except UnknownValueError:
+            except UnknownValueError or TypeError:
                 print(f"Speech-to-text could not produce a result for the audio.")
                 on_stt_fail()
                 continue
 
             # Detecting intent & acting accordingly.
-            # Not implmentation available right now.
-            print("Intent detection (unimplemented)...")
+            print("Passing the text command for further interpretation.")
+            print("Intent detection / actions not available.")
+            # intent_detection_sucessful = False
 
-            intent_detection_sucessful = False
-            if not intent_detection_sucessful:
-                print("Intent detection failed.")
-                self._fallback_action_runner.run(
-                    FallbackAction.REQUEST_REPHRASING, stt_text
-                )
-                continue
+            # If intent detection is not successful, ask the person to rephrase
+            # their last command.
+            # if not intent_detection_sucessful:
+                # print("Intent detection failed.")
+                # self._fallback_action_runner.run(
+                    # FallbackAction.REQUEST_REPHRASING, stt_text
+                # )
+                # continue
 
-            # If reached then the command was successfully processed.
+            # If reached then the command was successfully processed / executed.
             return 0
 
 

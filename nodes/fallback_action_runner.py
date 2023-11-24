@@ -25,15 +25,15 @@ class FallbackAction(str, Enum):
     """
 
     # USER FEEDBACK
-    REQUEST_HIGHER_VOLUME = "Requesting the person to repeat the command louder."
+    REQUEST_HIGHER_VOLUME = "Requesting the person to repeat the command louder"
     REQUEST_REPHRASING = "Requesting the user to rephrase the command"
     # USER CONFIRMATION
-    ASK_FOR_CONFIRMATION = "Asking the speaker for confirmation."
+    ASK_FOR_CONFIRMATION = "Asking the speaker for confirmation"
     # FALLBACK MECHANISM
-    MOVE_CLOSER_TO_SPEAKER = "Moving closer to the speaker."
-    REQUEST_THE_SPEAKER_TO_MOVE_CLOSER = "Requesting the speaker to move closer."
+    MOVE_CLOSER_TO_SPEAKER = "Moving closer to the speaker"
+    REQUEST_THE_SPEAKER_TO_MOVE_CLOSER = "Requesting the speaker to move closer"
     # HUMAN INTERVENTION
-    NOTIFY_SUPPORT = "Notifying support before shutting down the voice communication."
+    NOTIFY_SUPPORT = "Notifying support before shut down"
 
 
 class FallbackActionRunner:
@@ -112,7 +112,6 @@ class FallbackActionRunner:
                 "nay",
             ]:
                 return ResponseType.NEGATIVE
-
             if cleaned_response in [
                 "yes",
                 "yeah",
@@ -131,11 +130,12 @@ class FallbackActionRunner:
                 "that's correct",
             ]:
                 return ResponseType.AFFIRMATIVE
-
             return ResponseType.UNDETERMINED
 
         # Record user's response.
+        self._vad.open_audio_stream()
         response_audio_path = self._vad.record_voice_command()
+        self._vad.close_audio_stream()
         try:
             response, _ = speech_to_text(response_audio_path)
             response_type = process_response(response)
@@ -156,7 +156,7 @@ class FallbackActionRunner:
         )
 
         # Move closer to the person.
-        print("Moving near the human.")
+        print("Moving.")
         self._move_to_human_client.send_goal(MoveToHumanGoal())
         self._move_to_human_client.wait_for_result()
 
@@ -191,5 +191,5 @@ class FallbackActionRunner:
         }
 
         action_method = ACTIONS.get(action)
-        print(f"Running fallback action.\n{action.value}.")
+        print(f"Running fallback action: '{action.value}'.")
         action_method(*args)
