@@ -17,20 +17,18 @@ class FallbackAction(str, Enum):
         REQUEST_REPHRASING: Request the speaker to rephrase the last command.
         ASK_FOR_CONFIRMATION: Ask the user for confirmation to ensure the last voice command was understood correctly.
         MOVE_CLOSER_TO_SPEAKER: Move closer to the speaker and ask them to repeat the command.
-        REQUEST_THE_SPEAKER_TO_MOVE_CLOSER: Ask the person to move closer before initiating voice communication.
         NOTIFY_SUPPORT: Notify support personnel before shutting down the voice communication. Used after attempts to communicate have failed continuously.
     """
 
     # USER FEEDBACK
-    REQUEST_HIGHER_VOLUME = "Requesting the person to repeat the command louder"
-    REQUEST_REPHRASING = "Requesting the user to rephrase the command"
+    REQUEST_HIGHER_VOLUME = "Request higher volume"
+    REQUEST_REPHRASING = "Request rephrasing"
     # USER CONFIRMATION
-    ASK_FOR_CONFIRMATION = "Asking the speaker for confirmation"
+    ASK_FOR_CONFIRMATION = "Ask for confirmation"
     # FALLBACK MECHANISM
-    MOVE_CLOSER_TO_SPEAKER = "Moving closer to the speaker"
-    REQUEST_THE_SPEAKER_TO_MOVE_CLOSER = "Requesting the speaker to move closer"
+    MOVE_CLOSER_TO_SPEAKER = "Move closer to the speaker"
     # HUMAN INTERVENTION
-    NOTIFY_SUPPORT = "Notifying support before shut down"
+    NOTIFY_SUPPORT = "Notify support"
 
 
 class FallbackActionRunner:
@@ -39,8 +37,17 @@ class FallbackActionRunner:
     communication system.
 
     Attributes:
+        ACTION_PERFORMANCE_LIMITS: Defines how many times each fallback action
+            can be performed in a row before it should be aborted.
         _vad (VAD): VAD instance for recording user feedback.
     """
+
+    ACTION_PERFORMANCE_LIMITS = {
+        FallbackAction.REQUEST_HIGHER_VOLUME: 2,
+        FallbackAction.REQUEST_REPHRASING: 2,
+        FallbackAction.ASK_FOR_CONFIRMATION: 2,
+        FallbackAction.MOVE_CLOSER_TO_SPEAKER: 1,
+    }
 
     def __init__(self):
         """
@@ -48,6 +55,9 @@ class FallbackActionRunner:
         """
         # VAD instance for recording user feedback.
         self._vad = VAD()
+
+        # Keep a history of performed actions.
+        self._history = []
 
     @staticmethod
     def run_launch_file(package_name, launch_file_name, wait_to_finish=True):
@@ -66,6 +76,20 @@ class FallbackActionRunner:
         FallbackActionRunner.run_launch_file(
             "human_interactions", "move_to_human_action_client.launch"
         )
+
+    def clear_history(self):
+        self._history.clear()
+
+    def get_times_performed(self, action):
+        return self._history.count(action)
+
+    def is_action_count_limit_reached(self, action):
+        return self.get_times_performed(action) >= self.ACTION_PERFORMANCE_LIMITS.get(
+            action, 1
+        )
+
+    def get_num_actions_performed(self):
+        return len(self._history)
 
     def _request_higher_volume(self):
         """Ask the speaker to repeat the voice command at a higher volume."""
@@ -111,7 +135,7 @@ class FallbackActionRunner:
 
             # Check if the cleaned response matches the affirmative or negative
             # patterns.
-            if cleaned_response in [
+            if any(s in cleaned_response for s in [
                 "no",
                 "nope",
                 "not",
@@ -121,9 +145,9 @@ class FallbackActionRunner:
                 "negative",
                 "nah",
                 "nay",
-            ]:
+            ]):
                 return ResponseType.NEGATIVE
-            if cleaned_response in [
+            if any(s in cleaned_response for s in[
                 "yes",
                 "yeah",
                 "yep",
@@ -139,7 +163,7 @@ class FallbackActionRunner:
                 "fine",
                 "that is correct",
                 "that's correct",
-            ]:
+            ]):
                 return ResponseType.AFFIRMATIVE
             return ResponseType.UNDETERMINED
 
@@ -147,16 +171,14 @@ class FallbackActionRunner:
         self._vad.open_audio_stream()
         response_audio_path = self._vad.record_voice_command()
         self._vad.close_audio_stream()
-        try:
-            response, _ = speech_to_text(response_audio_path)
-            response_type = process_response(response)
-            if response_type == ResponseType.UNDETERMINED:
-                return self._ask_for_confirmation(interpreted_command)
-            else:
-                return True if response_type == ResponseType.AFFIRMATIVE else False
-        except:
-            # If stt failed, ask again.
+
+        stt_response = speech_to_text(response_audio_path)
+        response_type = process_response(stt_response.transcript)
+        print(f"Intepreted response '{stt_response.transcript}' as: {response_type.value}")
+        if response_type == ResponseType.UNDETERMINED:
             return self._ask_for_confirmation(interpreted_command)
+        else:
+            return True if response_type == ResponseType.AFFIRMATIVE else False
 
     def _move_closer_to_speaker(self):
         """Move closer to the speaker and ask them to repeat the last command."""
@@ -177,11 +199,8 @@ class FallbackActionRunner:
         print("Asking the person to repeat the command.")
         play_tts("Please repeat the previous command.")
 
-    def _request_the_speaker_to_move_closer(self):
-        """Ask the person to move closer before initiating voice communication."""
-        play_tts("Please move closer before initiating voice communication.")
-
     def _notify_support(self):
+        play_tts("Voice communication attempts have failed.")
         # TODO: Implement.
         pass
 
@@ -199,13 +218,14 @@ class FallbackActionRunner:
             FallbackAction.REQUEST_REPHRASING: self._request_rephrasing,
             FallbackAction.ASK_FOR_CONFIRMATION: self._ask_for_confirmation,
             FallbackAction.MOVE_CLOSER_TO_SPEAKER: self._move_closer_to_speaker,
-            FallbackAction.REQUEST_THE_SPEAKER_TO_MOVE_CLOSER: self._request_the_speaker_to_move_closer,
             FallbackAction.NOTIFY_SUPPORT: self._notify_support,
         }
 
+        self._history.append(action)
+
         action_method = ACTIONS.get(action)
         print(f"Running fallback action: '{action.value}'.")
-        action_method(*args)
+        return action_method(*args)
 
 
 if __name__ == "__main__":

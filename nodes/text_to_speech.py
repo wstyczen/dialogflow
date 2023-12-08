@@ -22,7 +22,7 @@ def text_to_speech(text, output_file=DEFAULT_TTS_PATH):
     try:
         tts = gTTS(text)
         tts.save(output_file)
-        print(f"Saved tts of '{text}' to '{output_file}'.")
+        # print(f"Saved tts of '{text}' to '{output_file}'.")
     except Exception as e:
         print(f"Failed to generate tts.\nError: {e}")
 

@@ -39,6 +39,37 @@ class VoiceCommunication:
         # Fallback action runner.
         self._fallback_action_runner = FallbackActionRunner()
 
+    def run_fallback_action(self, action, *args):
+        """
+        Run a fallback action. If the fallback action limit for how many times
+        in a row it can be perfiormed has been reached, the system will instead
+        shut down.
+
+        Args:
+            action (FallbackAction): The action to perform.
+        """
+        if self._fallback_action_runner.is_action_count_limit_reached(action):
+            print(
+                f"Action limit for '{action.value}' has been reached.",
+                f"Performed {self._fallback_action_runner.get_times_performed(action)} time(s) already."
+            )
+            self._fallback_action_runner.run(FallbackAction.NOTIFY_SUPPORT)
+            self.shut_down()
+
+        return self._fallback_action_runner.run(action, *args)
+
+    def on_stt_fail(self):
+        """
+        Default action to run when speech-to-text fails outright or the response
+        probability is really low.
+        """
+        self.run_fallback_action(FallbackAction.MOVE_CLOSER_TO_SPEAKER)
+
+    def shut_down(self):
+        play_tts("Shutting down.")
+        # TODO: Return the robot to the default pose ??
+        exit()
+
     def run(self):
         """
         Initiates the voice communication system for a robot.
@@ -71,8 +102,8 @@ class VoiceCommunication:
         print("Facing the human.")
         self._turn_to_human_client.send_goal(TurnToHumanGoal())
         # TODO: Should the robot wait for until the movement is completed or
-        # record command immediately ??
-        # TODO: Handle failure of the request.
+        # start recording immediately ??
+        # TODO: Handle failure of the request ??
         self._turn_to_human_client.wait_for_result()
 
         # Notify the person of the readiness to take commands.
@@ -86,21 +117,16 @@ class VoiceCommunication:
             # Calculate average volume of the audio (dB).
             # Needs to be done before audio enhancement (normalization).
             average_volume = AudioEnhancement.get_average_volume(audio_path)
-            print(f"Average audio volume: {average_volume} dB.")
+            print(f"Average audio volume: {average_volume:.2f} dB.")
             # If the volume is really low, ask the speaker to repeat their
             # command louder.
             if average_volume < -40:
-                self._fallback_action_runner.run(FallbackAction.REQUEST_HIGHER_VOLUME)
+                self.run_fallback_action(FallbackAction.REQUEST_HIGHER_VOLUME)
                 continue
 
             # Enhance recorded audio.
             print("Enhancing recorded audio quality.")
             AudioEnhancement(audio_path).enhance()
-
-            def on_stt_fail():
-                # Run when the speech-to-text fails outright or the response
-                # probability is really low.
-                self._fallback_action_runner.run(FallbackAction.MOVE_CLOSER_TO_SPEAKER)
 
             print("Interpreting the voice command.")
             # Interpret the command (speech-to-text).
@@ -122,40 +148,40 @@ class VoiceCommunication:
                     print(
                         f"Speech-to-text probability too low (<{STT_MAYBE_PROBABILITY_THRESHOLD})."
                     )
-                    on_stt_fail()
+                    self.on_stt_fail()
                     continue
                 elif confidence < STT_VALID_PROBABILITY_THRESHOLD:
                     print(
                         f"Speech-to-text probability uncertain (<{STT_VALID_PROBABILITY_THRESHOLD})."
                     )
-                    self._fallback_action_runner.run(
-                        FallbackAction.ASK_FOR_CONFIRMATION, text
-                    )
-                    continue
+                    if not self.run_fallback_action(FallbackAction.ASK_FOR_CONFIRMATION, text):
+                        continue
+                # If reached here that means that the audio has been transcribed
+                # with an acceptable confidence level, high enough to proceed.
             elif stt_response.error == RequestError:
                 return 2
             elif stt_response.error == FileNotFoundError:
                 return 3
             elif stt_response.error == UnknownValueError:
                 print(f"Speech-to-text could not produce a result for the audio.")
-                on_stt_fail()
+                self.on_stt_fail()
                 continue
 
             # Detecting intent & acting accordingly.
             print("Passing the text command for further interpretation.")
+            # TODO: Replace with a call to intent detection.
             print("Intent detection / actions not available.")
             # intent_detection_sucessful = False
 
             # If intent detection is not successful, ask the person to rephrase
             # their last command.
             # if not intent_detection_sucessful:
-            # print("Intent detection failed.")
-            # self._fallback_action_runner.run(
-            # FallbackAction.REQUEST_REPHRASING, stt_text
-            # )
-            # continue
+            #     print("Intent detection failed.")
+            #     self.run_fallback_action(FallbackAction.REQUEST_REPHRASING,
+            #                                 stt_response.transcript)
+            #     continue
 
-            # If reached then the command was successfully processed / executed.
+            # If reached here then the command was successfully processed / executed.
             return 0
 
 

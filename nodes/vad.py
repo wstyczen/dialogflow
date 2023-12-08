@@ -473,7 +473,7 @@ class VAD(Thread):
         while self._recorded_frames.qsize() != 0:
             self._recorded_frames.get()
 
-    def record_voice_command(self):
+    def record_voice_command(self, voiced_frames_threshold=10, silent_frames_threshold=15, time_limit=5):
         """
         Record a voice command after a trigger is detected.
 
@@ -483,16 +483,17 @@ class VAD(Thread):
 
         Recorded audio is saved to a file.
 
+        Args:
+            voiced_frames_threshold (int): Assume that the voice command has
+                begun after this many voiced frames.
+            silent_frames_threshold (int): After the voice command has started
+                and this many silent frames pass in a row, assume the command
+                has ended.
+            recording_time_limit (int): Maximum voice command length (in seconds).
+
         Returns:
             file_path (str): Path of the audio file the recording was saved to.
         """
-        # Consider command started after that many voiced frames.
-        VOICED_FRAMES_THR = 10
-        # After the command was started and that many silent frames passed, stop
-        # recording early.
-        SILENT_FRAMES_THR = 15
-        # Time limit for recording in seconds.
-        RECORDING_TIME_LIMIT = 5
 
         # Window of frames observed constants.
         CHUNK_DURATION_MS = 30  # Supports 10, 20 and 30 (ms)
@@ -500,7 +501,7 @@ class VAD(Thread):
         # Nr of frames, ie 500 ms / 30 ms ~= 16 frames
         WINDOW_LENGTH = int(WINDOW_DURATION / CHUNK_DURATION_MS)
         assert WINDOW_LENGTH >= max(
-            VOICED_FRAMES_THR, SILENT_FRAMES_THR
+            voiced_frames_threshold, silent_frames_threshold
         ), "The monitored window of frames can't be shorter then set thresholds."
 
         # Whether enough voiced frames where 'voiced'.
@@ -537,7 +538,7 @@ class VAD(Thread):
         start_time = time.time()
         audio_recorder = VAD.AudioRecorder()
         # Record sound while the loop is active.
-        while not got_a_sentence and time.time() - start_time <= RECORDING_TIME_LIMIT:
+        while not got_a_sentence and time.time() - start_time <= time_limit:
             # Get the active audio frame.
             try:
                 frame = self._recorded_frames.get(block=False)
@@ -583,23 +584,23 @@ class VAD(Thread):
 
             # Note the start of command (enough 'voiced' frames).
             if (
-                voiced_frames_left > VOICED_FRAMES_THR
-                or voiced_frames_right > VOICED_FRAMES_THR
+                voiced_frames_left > voiced_frames_threshold
+                or voiced_frames_right > voiced_frames_threshold
             ):
                 got_voiced_frames = True
             # If the command has started (got enough 'voiced' frames) and enough
             # silent frames pass, end recording early.
             if (
                 got_voiced_frames
-                and silent_frames_left > SILENT_FRAMES_THR
-                and silent_frames_right > SILENT_FRAMES_THR
+                and silent_frames_left > silent_frames_threshold
+                and silent_frames_right > silent_frames_threshold
             ):
                 got_a_sentence = True
 
         print(frames_str)
         if got_a_sentence:
             print("Ended early because a sentence was detected.")
-        elif time.time() - start_time > RECORDING_TIME_LIMIT:
+        elif time.time() - start_time > time_limit:
             print("Time limit reached.")
         print("Recording ended.")
 
