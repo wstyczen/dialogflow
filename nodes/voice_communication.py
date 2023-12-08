@@ -148,11 +148,11 @@ class VoiceCommunication:
             # If intent detection is not successful, ask the person to rephrase
             # their last command.
             # if not intent_detection_sucessful:
-                # print("Intent detection failed.")
-                # self._fallback_action_runner.run(
-                    # FallbackAction.REQUEST_REPHRASING, stt_text
-                # )
-                # continue
+            # print("Intent detection failed.")
+            # self._fallback_action_runner.run(
+            # FallbackAction.REQUEST_REPHRASING, stt_text
+            # )
+            # continue
 
             # If reached then the command was successfully processed / executed.
             return 0

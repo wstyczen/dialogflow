@@ -1,12 +1,9 @@
 #!/usr/bin/env python3.6
+import subprocess
 from enum import Enum
 
-from human_interactions.clients.move_to_human_action_client import (
-    MoveToHumanActionClient,
-)
-from human_interactions.msg import (
-    MoveToHumanGoal,
-)
+import rospy
+
 from speech_to_text import speech_to_text
 from text_to_speech import play_tts
 from vad import VAD
@@ -42,7 +39,6 @@ class FallbackActionRunner:
     communication system.
 
     Attributes:
-        _move_to_human_client (MoveToHumanActionClient): Client for MoveToHuman action server.
         _vad (VAD): VAD instance for recording user feedback.
     """
 
@@ -50,11 +46,26 @@ class FallbackActionRunner:
         """
         Initialize a FallbackActionRunner instance.
         """
-        # Client for MoveToHuman action server.
-        self._move_to_human_client = MoveToHumanActionClient()
-
         # VAD instance for recording user feedback.
         self._vad = VAD()
+
+    @staticmethod
+    def run_launch_file(package_name, launch_file_name, wait_to_finish=True):
+        try:
+            subprocess.run(
+                f"roslaunch {package_name} {launch_file_name}",
+                shell=True,
+                check=wait_to_finish,
+            )
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    @staticmethod
+    def run_move_to_human_action():
+        FallbackActionRunner.run_launch_file(
+            "human_interactions", "move_to_human_action_client.launch"
+        )
 
     def _request_higher_volume(self):
         """Ask the speaker to repeat the voice command at a higher volume."""
@@ -157,8 +168,10 @@ class FallbackActionRunner:
 
         # Move closer to the person.
         print("Moving.")
-        self._move_to_human_client.send_goal(MoveToHumanGoal())
-        self._move_to_human_client.wait_for_result()
+        # Needs to be run in separate process - for some reason the requests
+        # to multiple action servers from single node don't work and I couldn't
+        # find a better solution.
+        FallbackActionRunner.run_move_to_human_action()
 
         # Ask the person to repeat the command.
         print("Asking the person to repeat the command.")
@@ -193,3 +206,13 @@ class FallbackActionRunner:
         action_method = ACTIONS.get(action)
         print(f"Running fallback action: '{action.value}'.")
         action_method(*args)
+
+
+if __name__ == "__main__":
+    rospy.init_node("fallback_action_runner", anonymous=True)
+
+    # FallbackActionRunner.run_move_to_human_action()
+    fallback_action_runner = FallbackActionRunner()
+    fallback_action_runner.run(FallbackAction.MOVE_CLOSER_TO_SPEAKER)
+
+    rospy.spin()
