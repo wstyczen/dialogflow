@@ -51,7 +51,7 @@ class VoiceCommunication:
         if self._fallback_action_runner.is_action_count_limit_reached(action):
             print(
                 f"Action limit for '{action.value}' has been reached.",
-                f"Performed {self._fallback_action_runner.get_times_performed(action)} time(s) already."
+                f"Performed {self._fallback_action_runner.get_times_performed(action)} time(s) already.",
             )
             self._fallback_action_runner.run(FallbackAction.NOTIFY_SUPPORT)
             self.shut_down()
@@ -69,6 +69,9 @@ class VoiceCommunication:
         play_tts("Shutting down.")
         # TODO: Return the robot to the default pose ??
         exit()
+
+    def confirm_receiving_command(self, command_transcription):
+        play_tts(f"Voice command '{command_transcription}' received.")
 
     def run(self):
         """
@@ -101,9 +104,7 @@ class VoiceCommunication:
         # When keyword is detected rotate the robot to face the human.
         print("Facing the human.")
         self._turn_to_human_client.send_goal(TurnToHumanGoal())
-        # TODO: Should the robot wait for until the movement is completed or
-        # start recording immediately ??
-        # TODO: Handle failure of the request ??
+        # TODO: Handle failure of the request here ??
         self._turn_to_human_client.wait_for_result()
 
         # Notify the person of the readiness to take commands.
@@ -154,14 +155,25 @@ class VoiceCommunication:
                     print(
                         f"Speech-to-text probability uncertain (<{STT_VALID_PROBABILITY_THRESHOLD})."
                     )
-                    if not self.run_fallback_action(FallbackAction.ASK_FOR_CONFIRMATION, text):
+                    # Ask the user for confirmation that the transcription of
+                    # the command is correct.
+                    # If the speaker gives affirmation proceed with the
+                    # transcription, otherwise run another fallback action.
+                    if not self.run_fallback_action(
+                        FallbackAction.ASK_FOR_CONFIRMATION, text
+                    ):
                         continue
+
                 # If reached here that means that the audio has been transcribed
                 # with an acceptable confidence level, high enough to proceed.
+                self.confirm_receiving_command(stt_response.transcript)
+
             elif stt_response.error == RequestError:
                 return 2
+
             elif stt_response.error == FileNotFoundError:
                 return 3
+
             elif stt_response.error == UnknownValueError:
                 print(f"Speech-to-text could not produce a result for the audio.")
                 self.on_stt_fail()
@@ -169,7 +181,8 @@ class VoiceCommunication:
 
             # Detecting intent & acting accordingly.
             print("Passing the text command for further interpretation.")
-            # TODO: Replace with a call to intent detection.
+            # TODO: Replace with a call to intent detection when a stable
+            # working version is available.
             print("Intent detection / actions not available.")
             # intent_detection_sucessful = False
 

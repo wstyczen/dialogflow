@@ -473,7 +473,9 @@ class VAD(Thread):
         while self._recorded_frames.qsize() != 0:
             self._recorded_frames.get()
 
-    def record_voice_command(self, voiced_frames_threshold=10, silent_frames_threshold=15, time_limit=5):
+    def record_voice_command(
+        self, voiced_frames_threshold=10, silent_frames_threshold=15, time_limit=10
+    ):
         """
         Record a voice command after a trigger is detected.
 
@@ -489,7 +491,7 @@ class VAD(Thread):
             silent_frames_threshold (int): After the voice command has started
                 and this many silent frames pass in a row, assume the command
                 has ended.
-            recording_time_limit (int): Maximum voice command length (in seconds).
+            recording_time_limit (int): Maximum voice command length in seconds.
 
         Returns:
             file_path (str): Path of the audio file the recording was saved to.

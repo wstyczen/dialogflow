@@ -135,35 +135,41 @@ class FallbackActionRunner:
 
             # Check if the cleaned response matches the affirmative or negative
             # patterns.
-            if any(s in cleaned_response for s in [
-                "no",
-                "nope",
-                "not",
-                "isn't",
-                "wasn't",
-                "never",
-                "negative",
-                "nah",
-                "nay",
-            ]):
+            if any(
+                s in cleaned_response
+                for s in [
+                    "no",
+                    "nope",
+                    "not",
+                    "isn't",
+                    "wasn't",
+                    "never",
+                    "negative",
+                    "nah",
+                    "nay",
+                ]
+            ):
                 return ResponseType.NEGATIVE
-            if any(s in cleaned_response for s in[
-                "yes",
-                "yeah",
-                "yep",
-                "sure",
-                "absolutely",
-                "of course",
-                "certainly",
-                "indeed",
-                "definitely",
-                "affirmative",
-                "ok",
-                "okay",
-                "fine",
-                "that is correct",
-                "that's correct",
-            ]):
+            if any(
+                s in cleaned_response
+                for s in [
+                    "yes",
+                    "yeah",
+                    "yep",
+                    "sure",
+                    "absolutely",
+                    "of course",
+                    "certainly",
+                    "indeed",
+                    "definitely",
+                    "affirmative",
+                    "ok",
+                    "okay",
+                    "fine",
+                    "that is correct",
+                    "that's correct",
+                ]
+            ):
                 return ResponseType.AFFIRMATIVE
             return ResponseType.UNDETERMINED
 
@@ -174,11 +180,19 @@ class FallbackActionRunner:
 
         stt_response = speech_to_text(response_audio_path)
         response_type = process_response(stt_response.transcript)
-        print(f"Intepreted response '{stt_response.transcript}' as: {response_type.value}")
+        print(
+            f"Intepreted response '{stt_response.transcript}' as: {response_type.value}"
+        )
         if response_type == ResponseType.UNDETERMINED:
             return self._ask_for_confirmation(interpreted_command)
+        elif response_type == ResponseType.AFFIRMATIVE:
+            play_tts(
+                "Thank you for the confirmation. I will proceed with this command."
+            )
+            return True
         else:
-            return True if response_type == ResponseType.AFFIRMATIVE else False
+            play_tts("Okay, then please repeat your last command clearly.")
+            return False
 
     def _move_closer_to_speaker(self):
         """Move closer to the speaker and ask them to repeat the last command."""
