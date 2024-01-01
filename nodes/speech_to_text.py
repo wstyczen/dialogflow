@@ -1,4 +1,6 @@
 #!/usr/bin/env python3.6
+import json
+from rospkg import RosPack
 import os
 from collections import namedtuple
 
@@ -63,29 +65,40 @@ def speech_to_text(audio_path):
 if __name__ == "__main__":
     rospy.init_node("speech_to_text")
 
-    def display_stt_result(file_path):
-        stt_response = speech_to_text(file_path)
-        print(
-            "Failed."
-            if stt_response.error
-            else f"{{transcription: '{stt_response.transcript}', confidence: {stt_response.confidence:.2f}}}"
-        )
+    engine_used = "sphinx"
+    stt_results = {}
 
     print("Performing speech to text:")
     # Use the audio files specified in the launch file.
     for file_path in rospy.get_param("~audio_files").split():
-        print(
-            f"- '{file_path}':",
-        )
-        # Perform speech-to-text on the audio sample.
-        print("Default audio: ", end="")
-        display_stt_result(file_path)
+        result = {}
 
-        # Copy the file and enhance it.
-        TMP_AUDIO_PATH = "/tmp/tmp.wav"
-        os.system(f"cp {file_path} {TMP_AUDIO_PATH}")
-        AudioEnhancement(TMP_AUDIO_PATH).enhance(use_api=True)
+        def save_result(response, key):
+            if response.error:
+                result[key] = {"error": str(response.error)}
+            else:
+                result[key] = {
+                    "transcript": response.transcript,
+                    "confidence": response.confidence,
+                }
 
-        # # Try speech to text again.
-        print("Enhanced audio: ", end="")
-        display_stt_result(TMP_AUDIO_PATH)
+        # Try speech to text on normal audio.
+        save_result(speech_to_text(file_path), "default_audio")
+
+        # # Copy the file and enhance it.
+        # TMP_AUDIO_PATH = "/tmp/tmp.wav"
+        # os.system(f"cp {file_path} {TMP_AUDIO_PATH}")
+        # AudioEnhancement(TMP_AUDIO_PATH).enhance(use_api=True)
+        # # Try speech to text again on enhanced audio.
+        # save_result(speech_to_text(TMP_AUDIO_PATH), "enhanced_audio")
+
+        # stt_results[file_path] = result
+
+    # Save results to a json file within a subdir of this package.
+    results_dir_path = os.path.join(RosPack().get_path("dialogflow"), "stt_results")
+    if not os.path.exists(results_dir_path):
+        os.makedirs(results_dir_path)
+    with open(
+        os.path.join(results_dir_path, f"{engine_used}_results.json"), "w"
+    ) as outfile:
+        json.dump(stt_results, outfile)

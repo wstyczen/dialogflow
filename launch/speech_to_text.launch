@@ -1,5 +1,5 @@
 <launch>
   <node pkg="dialogflow" type="speech_to_text.py" name="speech_to_text" output="screen" >
-        <param name="audio_files" value="/home/wstyczen/tiago_public_ws/src/ros/dialogflow/audio_samples/distorted/bring_me_some_tea.wav"/>
+        <param name="audio_files" value="/home/wstyczen/tiago_public_ws/src/ros/dialogflow/audio_samples/new/bring_me_a_cup_of_black_coffee.wav /home/wstyczen/tiago_public_ws/src/ros/dialogflow/audio_samples/new/bring_me_a_mug_of_green_tea.wav /home/wstyczen/tiago_public_ws/src/ros/dialogflow/audio_samples/new/go_to_caretaker.wav /home/wstyczen/tiago_public_ws/src/ros/dialogflow/audio_samples/new/go_to_the_kitchen.wav /home/wstyczen/tiago_public_ws/src/ros/dialogflow/audio_samples/new/search_for_a_phone.wav"/>
   </node>
 </launch>
