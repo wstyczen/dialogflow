@@ -61,7 +61,9 @@ class FallbackActionRunner:
         self._vad = VAD()
 
         # Client for the MoveToHuman action server.
-        self._move_to_human_client = actionlib.SimpleActionClient(rospy.get_param("move_to_human_action_name"), MoveToHumanAction)
+        self._move_to_human_client = actionlib.SimpleActionClient(
+            rospy.get_param("move_to_human_action_name"), MoveToHumanAction
+        )
         self._move_to_human_client.wait_for_server()
 
         # Keep a history of performed actions.

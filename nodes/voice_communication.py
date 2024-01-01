@@ -14,6 +14,7 @@ from speech_to_text import speech_to_text
 from text_to_speech import play_tts
 from vad import VAD
 
+
 class VoiceCommunication:
     """
     Class for managing voice communication scenarios with the robot.
@@ -32,7 +33,9 @@ class VoiceCommunication:
         self._vad.open_audio_stream()
 
         # Client for the TurnToHuman action server.
-        self._turn_to_human_client = actionlib.SimpleActionClient(rospy.get_param("turn_to_human_action_name"), TurnToHumanAction)
+        self._turn_to_human_client = actionlib.SimpleActionClient(
+            rospy.get_param("turn_to_human_action_name"), TurnToHumanAction
+        )
         self._turn_to_human_client.wait_for_server()
 
         # Fallback action runner.
