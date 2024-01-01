@@ -1,20 +1,18 @@
 #!/usr/bin/env python3.6
+import actionlib
 import rospy
 
 from speech_recognition import RequestError, UnknownValueError
 
 from fallback_action_runner import FallbackActionRunner, FallbackAction
 from human_interactions.msg import (
+    TurnToHumanAction,
     TurnToHumanGoal,
-)
-from human_interactions.clients.turn_to_human_action_client import (
-    TurnToHumanActionClient,
 )
 from sound_processing.enhance_audio import AudioEnhancement
 from speech_to_text import speech_to_text
 from text_to_speech import play_tts
 from vad import VAD
-
 
 class VoiceCommunication:
     """
@@ -34,7 +32,8 @@ class VoiceCommunication:
         self._vad.open_audio_stream()
 
         # Client for the TurnToHuman action server.
-        self._turn_to_human_client = TurnToHumanActionClient()
+        self._turn_to_human_client = actionlib.SimpleActionClient(rospy.get_param("turn_to_human_action_name"), TurnToHumanAction)
+        self._turn_to_human_client.wait_for_server()
 
         # Fallback action runner.
         self._fallback_action_runner = FallbackActionRunner()
@@ -103,9 +102,7 @@ class VoiceCommunication:
 
         # When keyword is detected rotate the robot to face the human.
         print("Facing the human.")
-        self._turn_to_human_client.send_goal(TurnToHumanGoal())
-        # TODO: Handle failure of the request here ??
-        self._turn_to_human_client.wait_for_result()
+        self._turn_to_human_client.send_goal_and_wait(TurnToHumanGoal())
 
         # Notify the person of the readiness to take commands.
         play_tts("How can I help you?")
